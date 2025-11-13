@@ -9,14 +9,6 @@ function Service:new(o)
   return o
 end
 
-function Service:complete(
-  lines_before, ---@diagnostic disable-line
-  lines_after, ---@diagnostic disable-line
-  _
-) ---@diagnostic disable-line
-  error('Not Implemented!')
-end
-
 function Service:json_decode(data)
   local status, result = pcall(vim.fn.json_decode, data)
   if status then
@@ -26,20 +18,36 @@ function Service:json_decode(data)
   end
 end
 
+function Service:Post(url, headers, data, cb)
+    Service:_Request(url, headers, data, cb, { "-X", "POST" })
+
+end
+
 function Service:Get(url, headers, data, cb)
+  Service:_Request(url, headers, data, cb)
+end
+
+function Service:_Request(url, headers, data, cb, args)
+  args = args or {}
+
   headers = vim.tbl_extend('force', {}, headers or {})
   headers[#headers + 1] = 'Content-Type: application/json'
-
-  local tmpfname = os.tmpname()
-  local f = io.open(tmpfname, 'w+')
-  if f == nil then
-    vim.notify('Cannot open temporary message file: ' .. tmpfname, vim.log.levels.ERROR)
-    return
+  local tmpfname = nil
+  if type(data) == 'table' then
+    tmpfname = os.tmpname()
+    local f = io.open(tmpfname, 'w+')
+    if f == nil then
+      vim.notify('Cannot open temporary message file: ' .. tmpfname, vim.log.levels.ERROR)
+      return
+    end
+    f:write(vim.fn.json_encode(data))
+    f:close()
+    args[#args + 1] = '-d'
+    args[#args + 1] = '@' .. tmpfname
+  else
+    args[#args+1] = "--json"
+    args[#args+1] = data
   end
-  f:write(vim.fn.json_encode(data))
-  f:close()
-
-  local args = { url, '-d', '@' .. tmpfname }
 
   local timeout_seconds = conf:get('max_timeout_seconds')
   if tonumber(timeout_seconds) ~= nil then
@@ -51,16 +59,20 @@ function Service:Get(url, headers, data, cb)
 
   for _, h in ipairs(headers) do
     args[#args + 1] = '-H'
-    args[#args + 1] = "'" .. h .. "'"
+    args[#args + 1] = h
   end
+
+  args[#args + 1] = url
 
   job
     :new({
       command = 'curl',
       args = args,
       on_exit = vim.schedule_wrap(function(response, exit_code)
-        os.remove(tmpfname)
-        if exit_code ~= 0 then
+          if tmpfname ~= nil then
+            os.remove(tmpfname)
+          end
+          if exit_code ~= 0 then
           if conf:get('log_errors') then
             vim.notify('An Error Occurred ...', vim.log.levels.ERROR)
           end
@@ -69,9 +81,10 @@ function Service:Get(url, headers, data, cb)
 
         local result = table.concat(response:result(), '\n')
         local json = self:json_decode(result)
-        if type(self.params.raw_response_cb) == 'function' then
-          self.params.raw_response_cb(json)
-        end
+        vim.api.nvim_exec_autocmds({ "User" }, {
+          pattern = "CmpAiRequestFinished",
+          data = { response = json }
+        })
         if json == nil then
           cb({ { error = 'No Response.' } })
         else
@@ -83,3 +96,4 @@ function Service:Get(url, headers, data, cb)
 end
 
 return Service
+

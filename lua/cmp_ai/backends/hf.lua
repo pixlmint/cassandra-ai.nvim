@@ -1,4 +1,5 @@
 local requests = require('cmp_ai.requests')
+local formatter = require('cmp_ai.prompt_formatters').formatters
 
 HF = requests:new(nil)
 BASE_URL = 'https://api-inference.huggingface.co/models/bigcode/santacoder'
@@ -29,8 +30,9 @@ function HF:complete(lines_before, lines_after, cb)
     end)
     return
   end
+  local prompt = self.params.prompt or formatter.santacoder
   local data = {
-    inputs = '<fim-prefix>' .. lines_before .. '<fim-suffix>' .. lines_after .. '<fim-middle>',
+    inputs = prompt(lines_before, lines_after),
     parameters = {
       num_return_sequences = 5,
       return_full_text = false,

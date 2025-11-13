@@ -35,8 +35,8 @@ function Codestral:complete(lines_before, lines_after, cb)
     return
   end
   local data = {
-    prompt = self.params.prompt and self.params.prompt(lines_before, lines_after) or lines_before,
-    suffix = self.params.suffix and self.params.suffix(lines_after) or '',
+    prompt = lines_before,
+    suffix = lines_after,
   }
 
   data = vim.tbl_deep_extend('keep', data, self.params)

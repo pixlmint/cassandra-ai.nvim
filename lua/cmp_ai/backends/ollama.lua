@@ -1,4 +1,5 @@
 local requests = require('cmp_ai.requests')
+local formatter = require('cmp_ai.prompt_formatters').formatters
 
 Ollama = requests:new(nil)
 
@@ -25,9 +26,10 @@ function Ollama:new(o)
 end
 
 function Ollama:complete(lines_before, lines_after, cb)
+  local prompt = self.params.prompt or formatter.ollama_code
   local data = {
     model = self.params.model,
-    prompt = self.params.prompt and self.params.prompt(lines_before, lines_after) or '<PRE> ' .. lines_before .. ' <SUF>' .. lines_after .. ' <MID>',
+    prompt = prompt(lines_before, lines_after),
     keep_alive = self.params.keep_alive,
     template = self.params.template,
     system = self.params.system,
