@@ -43,7 +43,7 @@ function Service:_Request(url, headers, data, cb, args)
     f:close()
     args[#args + 1] = '-d'
     args[#args + 1] = '@' .. tmpfname
-  else
+  elseif type(data) == 'string' then
     args[#args+1] = "--json"
     args[#args+1] = data
   end
