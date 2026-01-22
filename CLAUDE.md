@@ -10,11 +10,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Indentation**: 2 spaces
 - **Quote style**: Auto-prefer single quotes
-- **Code formatter**: [StyLua](https://github.com/JohnnyMorganz/StyLua)
-- **Format command**: `stylua --config-path=stylua.toml lua/`
-- **Auto-formatting**: Enabled via GitHub Actions on push to main
-
-Note: The `.nvim.lua` file sets `shiftwidth=2` for local development.
 
 ## Architecture
 
@@ -53,7 +48,6 @@ Each backend in `lua/cmp_ai/backends/` follows this pattern:
 Special cases:
 - **Ollama**: Has model management logic (`configure_model()`) to detect loaded models and select appropriate one
 - **Ollama FIM**: Supports both `/api/generate` and `/api/chat` endpoints with suffix parameter for fill-in-middle
-- **General AI providers** (OpenAI, Claude): Use chat-based formatting with system prompts for code completion
 
 ### Prompt Formatting Strategies
 
@@ -80,30 +74,6 @@ Configuration in `config.lua` uses a singleton pattern:
 ### Testing Changes
 
 There is no formal test suite. To test changes:
-
-1. Load the plugin in Neovim with your preferred provider configured
-2. Use the `:test()` method on any backend for basic smoke testing:
-   ```lua
-   require('cmp_ai.backends.ollama'):new():test()
-   ```
-3. Test actual completions by typing in a buffer with the source enabled
-
-### Adding a New Backend
-
-1. Create `lua/cmp_ai/backends/yourprovider.lua`
-2. Follow the pattern in existing backends (inherit from `requests.lua`)
-3. Implement `:new()` and `:complete(lines_before, lines_after, cb)` methods
-4. Handle environment variables for API keys
-5. Choose or create appropriate prompt formatter
-6. Parse the provider's response format and extract completion text
-7. Update README.md with setup instructions
-
-### CI/CD
-
-The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push to main:
-- Generates vim documentation using panvimdoc
-- Runs stylua formatter on all Lua files
-- Auto-commits formatting changes
 
 ## Dependencies
 
