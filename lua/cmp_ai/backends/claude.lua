@@ -4,6 +4,7 @@ local formatters = require('cmp_ai.prompt_formatters').formatters
 Claude = requests:new(nil)
 BASE_URL = 'https://api.anthropic.com/v1/messages'
 
+--- @deprecated only ollama is maintained going forward
 function Claude:new(o, params)
   o = o or {}
   setmetatable(o, self)

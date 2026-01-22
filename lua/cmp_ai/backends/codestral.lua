@@ -3,6 +3,7 @@ local requests = require('cmp_ai.requests')
 Codestral = requests:new(nil)
 BASE_URL = 'https://codestral.mistral.ai/v1/fim/completions'
 
+--- @deprecated only ollama is maintained going forward
 function Codestral:new(o)
   o = o or {}
   setmetatable(o, self)

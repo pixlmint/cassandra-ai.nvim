@@ -4,6 +4,7 @@ local formatters = require('cmp_ai.prompt_formatters').formatters
 OpenAI = requests:new(nil)
 BASE_URL = 'https://api.openai.com/v1/chat/completions'
 
+--- @deprecated only ollama is maintained going forward
 function OpenAI:new(o, params)
   o = o or {}
   setmetatable(o, self)

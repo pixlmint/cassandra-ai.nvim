@@ -5,6 +5,7 @@ HF = requests:new(nil)
 BASE_URL = 'https://api-inference.huggingface.co/models/bigcode/santacoder'
 -- BASE_URL = "https://api-inference.huggingface.co/models/bigcode/starcoder"
 
+--- @deprecated only ollama is maintained going forward
 function HF:new(o, params)
   o = o or {}
   setmetatable(o, self)

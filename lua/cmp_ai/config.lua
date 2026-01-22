@@ -35,6 +35,9 @@ function M:setup(params)
   -- Only reinitialize if the provider changed or if it's not initialized yet
   if type(conf.provider) == 'string' or (old_provider_name and old_provider_name ~= new_provider_name) then
     local provider_name = type(conf.provider) == 'string' and conf.provider or conf.provider.name
+    if provider_name:lower() ~= 'ollama' then
+      vim.notify_once("Going forward, " .. provider_name .. " is no longer maintained by pixlmint/cmp-ai. Pin your plugin to tag `v1`, or fork the repo to handle maintenance yourself.", vim.log.levels.WARN)
+    end
     local status, provider = pcall(require, 'cmp_ai.backends.' .. provider_name:lower())
     if status then
       conf.provider = provider:new(conf.provider_options)

@@ -2,6 +2,7 @@ local requests = require('cmp_ai.requests')
 
 Tabby = requests:new(nil)
 
+--- @deprecated only ollama is maintained going forward
 function Tabby:new(o)
   o = o or {}
   setmetatable(o, self)

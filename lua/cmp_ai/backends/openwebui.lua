@@ -4,6 +4,7 @@ local formatters = require('cmp_ai.prompt_formatters').formatters
 
 OpenWebUI = requests:new(nil)
 
+--- @deprecated only ollama is maintained going forward
 function OpenWebUI:new(o)
   o = o or {}
   setmetatable(o, self)
