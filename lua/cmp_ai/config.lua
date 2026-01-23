@@ -16,6 +16,11 @@ local conf = {
   },
 
   log_errors = true,
+
+  -- Data collection (opt-in)
+  collect_data = false,
+  data_file = vim.fn.stdpath('data') .. '/cmp-ai/completions.jsonl',
+  data_buffer_size = 50,
 }
 
 function M:setup(params)
@@ -49,6 +54,16 @@ function M:setup(params)
     else
       vim.notify('Bad provider in config: ' .. provider_name, vim.log.levels.ERROR)
     end
+  end
+
+  -- Initialize logger if data collection is enabled
+  if conf.collect_data then
+    local logger = require('cmp_ai.logger')
+    logger:init({
+      enabled = true,
+      data_file = conf.data_file,
+      buffer_size = conf.data_buffer_size,
+    })
   end
 end
 
