@@ -1,1 +1,3 @@
 /binaries
+.repro/
+tests/deps/
