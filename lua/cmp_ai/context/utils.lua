@@ -1,231 +1,201 @@
 local M = {}
 
--- Language-specific patterns for fallback when treesitter unavailable
-local patterns = {
-  python = {
-    class = '^%s*class%s+%w+',
-    func = '^%s*def%s+%w+',
-    indent = '^%s*',
-  },
-  php = {
-    class = '^%s*class%s+%w+',
-    func = '^%s*(public|protected|private|static|function)%s+',
-    indent = '^%s*',
-  },
-  javascript = {
-    class = '^%s*class%s+%w+',
-    func = '^%s*(async%s+)?function%s+%w+|^%s*(const|let|var)%s+%w+%s*=%s*(async%s+)?%(',
-    indent = '^%s*',
-  },
-}
-
--- Get language from current buffer
-local function get_language()
-  local ft = vim.bo.filetype
-  if ft == 'python' then return 'python' end
-  if ft == 'php' then return 'php' end
-  if ft == 'javascript' or ft == 'jsx' or ft == 'typescript' or ft == 'tsx' then
-    return 'javascript'
+-- Helper function to check if file has any non-comment code
+local function has_code(bufnr)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local parser = vim.treesitter.get_parser(bufnr)
+  if not parser then
+    -- Fallback: check for non-empty, non-whitespace lines
+    for _, line in ipairs(lines) do
+      if line:match('^%s*$') == nil then
+        return true
+      end
+    end
+    return false
   end
+
+  local tree = parser:parse()[1]
+  local root = tree:root()
+
+  -- If there are any non-comment nodes, we have code
+  for node in root:iter_children() do
+    if node:type() ~= 'comment' then
+      return true
+    end
+  end
+
+  return false
+end
+
+-- Helper function to check if we're at a class/function declaration line
+local function is_declaration_line(line, filetype)
+  -- Remove leading/trailing whitespace for matching
+  local trimmed = line:match('^%s*(.-)%s*$')
+
+  -- Language-specific patterns for incomplete declarations
+  local patterns = {
+    python = {
+      class_pattern = '^class%s+%w*',
+      func_pattern = '^def%s+%w*',
+    },
+    lua = {
+      class_pattern = nil, -- Lua doesn't have native classes
+      func_pattern = '^function%s+%w*',
+    },
+    javascript = {
+      class_pattern = '^class%s+%w*',
+      func_pattern = '^function%s+%w*',
+    },
+    typescript = {
+      class_pattern = '^class%s+%w*',
+      func_pattern = '^function%s+%w*',
+    },
+    php = {
+      class_pattern = '^class%s+%w*',
+      -- PHP functions can have visibility modifiers (public/private/protected), static, etc.
+      func_pattern = '^[%w%s]*function%s*%w*',
+    },
+    java = {
+      class_pattern = '^class%s+%w*',
+      func_pattern = '^%w+%s+%w+%s*%(', -- return_type function_name(
+    },
+  }
+
+  local lang_patterns = patterns[filetype]
+  if not lang_patterns then
+    -- Generic patterns
+    lang_patterns = {
+      class_pattern = '^class%s+%w*',
+      func_pattern = '^function%s+%w*',
+    }
+  end
+
+  if lang_patterns.class_pattern and trimmed:match(lang_patterns.class_pattern) then
+    return 'class'
+  end
+
+  if lang_patterns.func_pattern and trimmed:match(lang_patterns.func_pattern) then
+    return 'func'
+  end
+
   return nil
 end
 
--- Check if treesitter textobjects is available
-local function has_textobjects()
-  local ok = pcall(require, 'nvim-treesitter-textobjects.shared')
-  return ok
+-- Helper function to check if a line is empty or whitespace-only
+local function is_empty_line(line)
+  return line:match('^%s*$') ~= nil
 end
 
--- Check if we're in a comment using treesitter
-local function in_comment()
-  if not has_textobjects() then return false, {} end
-  local textobjects = require('nvim-treesitter-textobjects.shared')
-  local comment = textobjects.textobject_at_point('@comment.inner', 'textobjects')
-  return comment and #comment > 0, comment
-end
+-- Detect the current suggestion context
+function M.detect_suggestion_context(bufnr, pos)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  pos = pos or vim.api.nvim_win_get_cursor(0)
 
--- Check if we're in a function body using treesitter
-local function in_function_body()
-  if not has_textobjects() then return false, {} end
-  local textobjects = require('nvim-treesitter-textobjects.shared')
-  local func = textobjects.textobject_at_point('@function.inner', 'textobjects')
-  return func and #func > 0, func
-end
+  local filetype = vim.bo[bufnr].filetype
+  local current_line = vim.api.nvim_buf_get_lines(bufnr, pos[1] - 1, pos[1], false)[1] or ''
 
--- Check if we're in a class body using treesitter
-local function in_class_body()
-  if not has_textobjects() then return false, {} end
-  local textobjects = require('nvim-treesitter-textobjects.shared')
-  local class = textobjects.textobject_at_point('@class.inner', 'textobjects')
-  return class and #class > 0, class
-end
-
--- Check if current line is a class/function definition using pattern
-local function is_definition(line, lang)
-  local pat = patterns[lang]
-  if not pat then return false end
-  return line:match(pat.class) or line:match(pat.func)
-end
-
--- Check if we're writing a doc comment for class/function
-local function is_doc_comment_for_definition()
-  if not has_textobjects() then return false end
-  local textobjects = require('nvim-treesitter-textobjects.shared')
-
-  local is_comment, comment = in_comment()
-  if not is_comment then return false end
-  -- local comment = textobjects.textobject_at_point('@comment.inner', 'textobjects')
-  -- if not comment or #comment == 0 then return false end
-
-  -- Get position right after the comment
-  local next_line = comment[4] + 1 -- end line + 1
-
-  -- Check if next line is a class definition
-  local class_at_next = textobjects.textobject_at_point('@class.outer', 'textobjects', { next_line, 0 })
-  if class_at_next and #class_at_next > 0 then
-    return 'comment_class'
-  end
-
-  -- Check if next line is a function definition
-  local func_at_next = textobjects.textobject_at_point('@function.outer', 'textobjects', { next_line, 0 })
-  if func_at_next and #func_at_next > 0 then
-    return 'comment_func'
-  end
-
-  return false
-end
-
--- Count non-empty, non-comment lines in buffer
-local function contains_code(bufnr)
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-  local comment_variances = { "#", "--", "//", "/%*", "//%*" }
-
-  for _, line in ipairs(lines) do
-    -- Skip empty lines
-    if not line:match('^%s*$') then
-      for _, pat in pairs(comment_variances) do
-        if line:match("^%s*" .. pat) then
-          return true
-        end
-      end
-    end
-  end
-
-  return false
-end
-
-local function string_split(inputstr, sep)
-  if sep == nil then
-    sep = "%s"
-  end
-  local t = {}
-  for str in string.gmatch(inputstr, "([^" .. sep .. "]+)") do
-    table.insert(t, str)
-  end
-  return t
-end
-
-
-local lang_intelligence = {
-  php = {
-    in_function_body = function()
-      local is_func, _ = in_function_body()
-      if not is_func then return false end
-
-      local line = vim.api.nvim_get_current_line()
-
-      local pre_function_keywords = { "public", "private", "protected", "static", "abstract", "final" }
-
-      local words = string_split(line, "%s+")
-
-      local func_found = false
-      local name_found = false
-      local opening_brace_found = false
-      local closing_brace_found = false
-
-      for _, word in pairs(words) do
-        if not func_found then
-          if word == 'function' then
-            func_found = true
-          else
-            for _, pre_key in pairs(pre_function_keywords) do
-              if word ~= pre_key then
-                return false, {}
-              end
-            end
-          end
-        elseif not name_found then
-          if word:match("^%a[a-zA-Z0-9_]*$") then
-            name_found = true
-          elseif word:match("^%a[a-zA-Z0-9_]*%([%a[a-zA-Z0-9_]*$") then
-            name_found = true
-            opening_brace_found = true
-          elseif word:match("^%a[a-zA-Z0-9_]*%(%)$") then
-            name_found = true
-            opening_brace_found = true
-            closing_brace_found = true
-          else
-            return false, {}
-          end
-        elseif not opening_brace_found then
-          if word == '(' then
-            opening_brace_found = true
-          else
-            return false, {}
-          end
-        end
-      end
-
-      return closing_brace_found, {}
-    end,
-    definition_type = function()
-    end
-  },
-}
-
-function M.detect_suggestion_context()
-  local lang = get_language()
-  if not lang then return 'init' end
-
-  local bufnr = vim.api.nvim_get_current_buf()
-
-  -- Check for new file
-  if not contains_code(bufnr) then
+  -- Check if we have any code in the file
+  if not has_code(bufnr) then
     return 'init'
   end
 
-  -- Check for doc comment using treesitter
-  local doc_type = is_doc_comment_for_definition()
-  if doc_type then return doc_type end
+  -- Load treesitter textobjects if available
+  local ok, textobjects = pcall(require, 'nvim-treesitter-textobjects.shared')
+  if not ok then
+    return nil
+  end
 
   -- Check if we're in a comment
-  -- local is_comment, _ = in_comment()
-  -- if is_comment then
-  --   -- Already handled doc comment case above, so this is just a regular comment
-  --   return 'impl'
-  -- end
+  local comment_match = textobjects.textobject_at_point('@comment.inner', 'textobjects')
+
+  if comment_match and #comment_match >= 4 then
+    -- We're in a comment, check if it's a class or function comment
+    local comment_end_line = comment_match[4]
+    local next_line_pos = { comment_end_line + 1, 0 }
+
+    -- Check for class after comment
+    local class_match = textobjects.textobject_at_point('@class.outer', 'textobjects', next_line_pos)
+    if class_match and #class_match >= 4 then
+      local class_start_line = class_match[1]
+      if class_start_line == comment_end_line + 1 then
+        return 'comment_class'
+      end
+    end
+
+    -- Check for function after comment
+    local func_match = textobjects.textobject_at_point('@function.outer', 'textobjects', next_line_pos)
+    if func_match and #func_match >= 4 then
+      local func_start_line = func_match[1]
+      if func_start_line == comment_end_line + 1 then
+        return 'comment_func'
+      end
+    end
+
+    -- Generic comment (not a doc comment)
+    return 'impl'
+  end
+
+  -- Check if we're writing a class or function declaration
+  local decl_type = is_declaration_line(current_line, filetype)
+  if decl_type then
+    return decl_type
+  end
 
   -- Check if we're in a function body
-  local in_function_body_func = lang_intelligence[lang].in_function_body or in_function_body
-  local is_function, _ = in_function_body_func()
-  if is_function then
-    return 'impl'
-  end
+  local func_match = textobjects.textobject_at_point('@function.inner', 'textobjects')
 
-  -- Check if we're in a class body
-  local in_class, _ = in_class_body()
-  if in_class then
-    -- Could be writing a method or property
-    local current_line = vim.api.nvim_get_current_line()
-    vim.print(current_line)
-    if is_definition(current_line, lang) then
-      return current_line:match(patterns[lang].class) and 'class' or 'func'
+  if func_match and #func_match >= 4 then
+    -- We matched a function.inner, but we need to verify this isn't a false positive
+    -- where we're declaring a new function above an existing one
+    local func_start_line = func_match[1]
+    local func_end_line = func_match[4]
+    local current_pos_line = pos[1] - 1 -- Convert to 0-indexed
+
+    -- Edge case: Check if we're actually declaring a new function above an existing one
+    -- by verifying if there's no function body content between cursor and the matched function
+    if current_pos_line < func_start_line then
+      -- Cursor is before the function start, we're definitely not in it
+      return 'impl'
     end
+
+    -- Get the line at the function start to check if it's where we are
+    local func_start_line_content = vim.api.nvim_buf_get_lines(bufnr, func_start_line, func_start_line + 1, false)[1] or
+    ''
+
+    -- If we're on a line that looks like a function declaration and it's not the actual
+    -- matched function's declaration line, we're declaring a new function
+    if is_declaration_line(current_line, filetype) then
+      -- Check if current line is different from the matched function's start
+      if current_pos_line ~= func_start_line then
+        -- We're on a declaration line that's not the matched function's start
+        -- This means we're declaring a new function above an existing one
+        return 'func'
+      end
+    end
+
+    -- If cursor is at or very close to the function start and the line is a declaration,
+    -- check if there's actual function body content below
+    if current_pos_line <= func_start_line + 2 and is_declaration_line(current_line, filetype) then
+      -- Check if the next few lines are empty (no body yet)
+      local lines_below = vim.api.nvim_buf_get_lines(bufnr, current_pos_line + 1,
+        math.min(current_pos_line + 3, func_end_line), false)
+      local has_body_content = false
+      for _, line in ipairs(lines_below) do
+        if not is_empty_line(line) then
+          has_body_content = true
+          break
+        end
+      end
+
+      if not has_body_content then
+        return 'func'
+      end
+    end
+
     return 'impl'
   end
 
-  -- Default case
+  -- Default to implementation context
   return 'impl'
 end
 
