@@ -92,8 +92,3 @@ function M:get(what)
 end
 
 return M
-
-
-
-
-

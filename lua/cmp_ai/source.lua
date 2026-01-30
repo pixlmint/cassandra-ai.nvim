@@ -59,14 +59,10 @@ function Source:_do_complete(ctx, cb)
       if cb['on_start'] == nil then
         return
       else
-        async.run(function()
-          cb['on_start']('Completion started')
-        end)
+        async.run(function() cb['on_start']('Completion started') end)
       end
     else
-      async.run(function()
-        cb('Completion started', true)
-      end)
+      async.run(function() cb('Completion started', true) end)
     end
   end
   vim.api.nvim_exec_autocmds({ "User" }, {
