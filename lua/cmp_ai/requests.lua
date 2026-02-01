@@ -19,7 +19,7 @@ function Service:json_decode(data)
 end
 
 function Service:Post(url, headers, data, cb)
-    Service:_Request(url, headers, data, cb, { "-X", "POST" })
+  Service:_Request(url, headers, data, cb, { "-X", "POST" })
 end
 
 function Service:Get(url, headers, data, cb)
@@ -44,8 +44,8 @@ function Service:_Request(url, headers, data, cb, args)
     args[#args + 1] = '-d'
     args[#args + 1] = '@' .. tmpfname
   elseif type(data) == 'string' then
-    args[#args+1] = "--json"
-    args[#args+1] = data
+    args[#args + 1] = "--json"
+    args[#args + 1] = data
   end
 
   local timeout_seconds = conf:get('max_timeout_seconds')
@@ -64,35 +64,34 @@ function Service:_Request(url, headers, data, cb, args)
   args[#args + 1] = url
 
   job
-    :new({
-      command = 'curl',
-      args = args,
-      on_exit = vim.schedule_wrap(function(response, exit_code)
+      :new({
+        command = 'curl',
+        args = args,
+        on_exit = vim.schedule_wrap(function(response, exit_code)
           if tmpfname ~= nil then
             os.remove(tmpfname)
           end
           if exit_code ~= 0 then
-          if conf:get('log_errors') then
-            vim.notify('An Error Occurred ...', vim.log.levels.ERROR)
+            if conf:get('log_errors') then
+              vim.notify('An Error Occurred ...', vim.log.levels.ERROR)
+            end
+            cb({ { error = 'ERROR: API Error' } })
           end
-          cb({ { error = 'ERROR: API Error' } })
-        end
 
-        local result = table.concat(response:result(), '\n')
-        local json = self:json_decode(result)
-        vim.api.nvim_exec_autocmds({ "User" }, {
-          pattern = "CmpAiRequestFinished",
-          data = { response = json }
-        })
-        if json == nil then
-          cb({ { error = 'No Response.' } })
-        else
-          cb(json)
-        end
-      end),
-    })
-    :start()
+          local result = table.concat(response:result(), '\n')
+          local json = self:json_decode(result)
+          vim.api.nvim_exec_autocmds({ "User" }, {
+            pattern = "CmpAiRequestFinished",
+            data = { response = json }
+          })
+          if json == nil then
+            cb({ { error = 'No Response.' } })
+          else
+            cb(json)
+          end
+        end),
+      })
+      :start()
 end
 
 return Service
-
