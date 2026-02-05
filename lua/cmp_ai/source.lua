@@ -164,9 +164,10 @@ function Source:_do_complete(ctx, cb)
     end
   end
 
+  print('surround_extract_strategy: ' .. surround_extract_strategy)
   if surround_extract_strategy == 'smart' then
-    require('cmp_ai.context.utils').detect_suggestion_context(ctx.context.bufnr, pos, function()
-      next_action(surround_extractor.smart_extractor(ctx))
+    require('cmp_ai.context.utils').detect_suggestion_context(ctx.context.bufnr, pos, function(current_context)
+      next_action(surround_extractor.smart_extractor(ctx, current_context))
     end)
   else
     next_action(surround_extractor.simple_extractor(ctx))
