@@ -20,17 +20,19 @@ end
 
 
 local function extract_lines(start_line, end_line, cursor)
-  local cur_line = cursor[1]
+  local line_num = cursor[1]
+  local cur_line_list = api.nvim_buf_get_lines(0, line_num, line_num, false)
+  local cur_line = cur_line_list[1]
   -- properly handle utf8
   local cur_line_before = vim.fn.strpart(cur_line, 0, math.max(cursor[2] - 1, 0), 1)
 
   -- properly handle utf8
-  local cur_line_after = vim.fn.strpart(cur_line, math.max(cursor[2] - 1, 0), vim.fn.strdisplaywidth(cur_line), 1) -- include current character
+  local cur_line_after = vim.fn.strpart(cur_line, math.max(cursor[2] - 1, 0), vim.fn.strdisplaywidth(cur_line), 1)
 
-  local lines_before = api.nvim_buf_get_lines(0, start_line, cur_line, false)
+  local lines_before = api.nvim_buf_get_lines(0, start_line, line_num, false)
   table.insert(lines_before, cur_line_before)
 
-  local lines_after = api.nvim_buf_get_lines(0, cur_line + 1, end_line, false)
+  local lines_after = api.nvim_buf_get_lines(0, line_num + 1, end_line, false)
   table.insert(lines_after, 1, cur_line_after)
 
   return {
