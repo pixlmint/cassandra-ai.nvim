@@ -1,7 +1,7 @@
 local cmp = require('cmp')
-local api = vim.api
 local conf = require('cmp_ai.config')
 local async = require('plenary.async')
+local surround_extractor = require('cmp_ai.context.surround_extractor')
 
 --- Generate a UUID v4
 local function generate_uuid()
@@ -52,6 +52,8 @@ function Source:get_debug_name()
   return 'AI'
 end
 
+--- @param ctx cmp.SourceCompletionApiParams
+--- @param cb function
 function Source:_do_complete(ctx, cb)
   if conf:get('notify') then
     local cb = conf:get('notify_callback')
@@ -68,51 +70,12 @@ function Source:_do_complete(ctx, cb)
   vim.api.nvim_exec_autocmds({ "User" }, {
     pattern = "CmpAiRequestStarted",
   })
-  local max_lines = conf:get('max_lines')
-  local cursor = ctx.context.cursor
-  local cur_line = ctx.context.cursor_line
-  -- properly handle utf8
-  -- local cur_line_before = string.sub(cur_line, 1, cursor.col - 1)
-  local cur_line_before = vim.fn.strpart(cur_line, 0, math.max(cursor.col - 1, 0), true)
-
-  -- properly handle utf8
-  -- local cur_line_after = string.sub(cur_line, cursor.col) -- include current character
-  local cur_line_after = vim.fn.strpart(cur_line, math.max(cursor.col - 1, 0), vim.fn.strdisplaywidth(cur_line), true) -- include current character
-
-  local lines_before = api.nvim_buf_get_lines(0, math.max(0, cursor.line - max_lines), cursor.line, false)
-  table.insert(lines_before, cur_line_before)
-  local before = table.concat(lines_before, '\n')
-
-  local lines_after = api.nvim_buf_get_lines(0, cursor.line + 1, cursor.line + max_lines, false)
-  table.insert(lines_after, 1, cur_line_after)
-  local after = table.concat(lines_after, '\n')
 
   -- Generate request ID and log request if data collection is enabled
   local request_id = generate_uuid()
   local logger = require('cmp_ai.logger')
   local request_start_time = os.clock()
 
-  if logger:is_enabled() then
-    local provider = conf:get('provider')
-    logger:log_request(request_id, {
-      cwd = vim.fn.getcwd(),
-      filename = vim.api.nvim_buf_get_name(0),
-      filetype = vim.bo.filetype,
-      cursor = { line = cursor.line, col = cursor.col },
-      lines_before = before,
-      lines_after = after,
-      provider = provider.name,
-      provider_config = safe_serialize_config(provider.params),
-    })
-
-    self.pending_requests[request_id] = {
-      timestamp = request_start_time,
-      items = {},
-    }
-  end
-
-  -- Gather additional context from context providers
-  local context_manager = require('cmp_ai.context_providers')
 
   local function completed(data)
     self:end_complete(data, ctx, cb, request_id, request_start_time)
@@ -133,33 +96,81 @@ function Source:_do_complete(ctx, cb)
     end
   end
 
-  local service = conf:get('provider')
+  local cursor = ctx.context.cursor
+  local pos = { cursor.line, cursor.col }
+  local surround_extract_strategy = conf:get('surround_extractor_strategy')
 
-  if service == nil then
-    return
+  --- @class CompletionContext
+  --- @field lines_before string
+  --- @field lines_after string
+
+  --- @param context CompletionContext
+  local function next_action(context)
+    if logger:is_enabled() then
+      local provider = conf:get('provider')
+      logger:log_request(request_id, {
+        cwd = vim.fn.getcwd(),
+        filename = vim.api.nvim_buf_get_name(0),
+        filetype = vim.bo.filetype,
+        cursor = { line = cursor.line, col = cursor.col },
+        lines_before = context.lines_before,
+        lines_after = context.lines_after,
+        provider = provider.name,
+        provider_config = safe_serialize_config(provider.params),
+      })
+
+      self.pending_requests[request_id] = {
+        timestamp = request_start_time,
+        items = {},
+      }
+    end
+
+    -- Gather additional context from context providers
+    local context_manager = require('cmp_ai.context')
+
+    local service = conf:get('provider')
+
+    if service ~= nil then
+      local before = context.lines_before
+      local after = context.lines_after
+
+      service:get_model(function(model_config)
+        if not context_manager.is_enabled() or not model_config.allows_extra_context then
+          vim.notify('using simple completion', vim.log.levels.INFO)
+          -- No context providers enabled, proceed normally
+          local prompt = model_config.prompt(before, after)
+          service:complete(prompt, completed, model_config)
+        else
+          -- Prepare context parameters
+          local context_params = {
+            bufnr = ctx.context.bufnr,
+            cursor_pos = { line = cursor.line, col = cursor.col },
+            before = before,
+            after = after,
+            filetype = vim.bo.filetype, -- TODO: This should get the filetype by bufnr, not of the current buffer
+          }
+          vim.notify('using advanced completion with additional context', vim.log.levels.INFO)
+
+          -- Gather context asynchronously
+          context_manager.gather_context(context_params, function(additional_context)
+            local prompt = model_config.prompt(before, after, nil, additional_context)
+            service:complete(prompt, completed, model_config)
+          end)
+        end
+      end)
+    end
   end
 
-  if not context_manager.is_enabled() then
-    -- No context providers enabled, proceed normally
-    service:complete(before, after, completed)
-  else
-    -- Prepare context parameters
-    local context_params = {
-      bufnr = ctx.context.bufnr,
-      cursor_pos = { line = cursor.line, col = cursor.col },
-      lines_before = before,
-      lines_after = after,
-      filetype = vim.bo.filetype,
-    }
-
-    -- Gather context asynchronously
-    context_manager.gather_context(context_params, function(additional_context)
-      service:complete(before, after, completed, additional_context)
+  if surround_extract_strategy == 'smart' then
+    require('cmp_ai.context.utils').detect_suggestion_context(ctx.context.bufnr, pos, function(current_context)
+      next_action(surround_extractor.smart_extractor(ctx, current_context))
     end)
+  else
+    next_action(surround_extractor.simple_extractor(ctx))
   end
 end
 
---- complete
+--- @param ctx cmp.SourceCompletionApiParams
 function Source:complete(ctx, callback)
   if conf:get('ignored_file_types')[vim.bo.filetype] then
     callback()
@@ -168,6 +179,8 @@ function Source:complete(ctx, callback)
   self:_do_complete(ctx, callback)
 end
 
+--- @param data table
+--- @param ctx cmp.SourceCompletionApiParams
 function Source:end_complete(data, ctx, cb, request_id, request_start_time)
   local items = {}
   for _, response in ipairs(data) do

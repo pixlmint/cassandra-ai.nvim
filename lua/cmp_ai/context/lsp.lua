@@ -1,6 +1,6 @@
 --- LSP Context Provider
 --- Extracts class/function signatures from LSP using references and definitions
-local BaseContextProvider = require('cmp_ai.context_providers.base')
+local BaseContextProvider = require('cmp_ai.context.base')
 
 local LspContextProvider = BaseContextProvider:new()
 

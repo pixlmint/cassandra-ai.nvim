@@ -34,11 +34,6 @@ M.formatters = {
 
     local user_message = string.format('<code_prefix>%s</code_prefix><code_suffix>%s</code_suffix><code_middle>', lines_before, lines_after)
 
-    -- Add additional context if provided
-    if additional_context and additional_context ~= '' then
-      user_message = string.format('<additional_context>\n%s\n</additional_context>\n\n%s', additional_context, user_message)
-    end
-
     local system = [=[You are a coding companion.
 You need to suggest code for the language ]=] .. opts.filetype .. [=[
 
@@ -53,61 +48,32 @@ For example, consider the following request:
 Your answer should be:
 
     print("Hello")</code_middle>
-
-If additional context is provided (such as LSP diagnostics, treesitter information, or other metadata), use it to inform your completion but do not reference it directly in your output.
 ]=]
+
+    if additional_context and additional_context ~= '' then
+      system = system .. "\nAdditional Context for the current code section (use this to provider better informed completions):\n" .. additional_context
+    end
+
     return chat_formatting(user_message, system)
   end,
 
   -- Ollama FIM format (no system prompt, uses special tokens)
   ollama_code = function(lines_before, lines_after, opts, additional_context)
-    additional_context = additional_context or ''
-    local prompt = '<PRE> ' .. lines_before .. ' <SUF>' .. lines_after .. ' <MID>'
-
-    -- Prepend additional context if provided
-    if additional_context and additional_context ~= '' then
-      prompt = additional_context .. '\n\n' .. prompt
-    end
-
-    return chat_formatting(prompt)
+    return chat_formatting('<PRE> ' .. lines_before .. ' <SUF>' .. lines_after .. ' <MID>')
   end,
 
   santacoder = function(lines_before, lines_after, opts, additional_context)
-    additional_context = additional_context or ''
-    local prompt = '<fim-prefix>' .. lines_before .. '<fim-suffix>' .. lines_after .. '<fim-middle>'
-
-    -- Prepend additional context if provided
-    if additional_context and additional_context ~= '' then
-      prompt = additional_context .. '\n\n' .. prompt
-    end
-
-    return chat_formatting(prompt)
+    return chat_formatting('<fim-prefix>' .. lines_before .. '<fim-suffix>' .. lines_after .. '<fim-middle>')
   end,
 
   codestral = function(lines_before, lines_after, opts, additional_context)
-    additional_context = additional_context or ''
-    local prompt = '[SUFFIX]' .. lines_before .. '[PREFIX]' .. lines_after
-
-    -- Prepend additional context if provided
-    if additional_context and additional_context ~= '' then
-      prompt = additional_context .. '\n\n' .. prompt
-    end
-
-    return chat_formatting(prompt)
+    return chat_formatting('[SUFFIX]' .. lines_before .. '[PREFIX]' .. lines_after)
   end,
 
   -- used for codegemma and qwen
   fim = function(lines_before, lines_after, opts, additional_context)
-    additional_context = additional_context or ''
-
-    -- For FIM models, prepend context to the prefix
-    local prompt = lines_before
-    if additional_context and additional_context ~= '' then
-      prompt = additional_context .. '\n\n' .. lines_before
-    end
-
     return {
-      prompt = prompt,
+      prompt = lines_before,
       suffix = lines_after,
     }
     -- return '<|fim_prefix|>' .. lines_before .. '<|fim_suffix|>' .. lines_after .. '<|fim_middle|>'

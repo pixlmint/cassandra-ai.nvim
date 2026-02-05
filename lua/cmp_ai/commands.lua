@@ -4,7 +4,7 @@ local M = {}
 --- Show context from a specific provider in a popup
 --- @param provider_name string The name of the provider to test
 local function show_context(provider_name)
-  local context_manager = require('cmp_ai.context_providers')
+  local context_manager = require('cmp_ai.context')
 
   if not context_manager.is_enabled() then
     vim.notify('Context providers are not configured. Add providers to context_providers.providers in your config.\nExample: context_providers = { providers = {\'lsp\', \'treesitter\'} }',
@@ -172,7 +172,7 @@ function M.setup()
     nargs = 1,
     desc = 'Show context from a specific context provider',
     complete = function()
-      local context_manager = require('cmp_ai.context_providers')
+      local context_manager = require('cmp_ai.context')
 
       if not context_manager.is_enabled() then
         return {}
@@ -191,7 +191,7 @@ function M.setup()
 
   -- Create CmpAiContextAll command to show all contexts
   vim.api.nvim_create_user_command('CmpAiContextAll', function()
-    local context_manager = require('cmp_ai.context_providers')
+    local context_manager = require('cmp_ai.context')
 
     if not context_manager.is_enabled() then
       vim.notify('Context providers are not configured. Add providers to context_providers.providers in your config.\nExample: context_providers = { providers = {\'lsp\', \'treesitter\'} }',
@@ -304,7 +304,7 @@ function M.setup()
 
   -- Create CmpAiContextList command to list available providers
   vim.api.nvim_create_user_command('CmpAiContextList', function()
-    local context_manager = require('cmp_ai.context_providers')
+    local context_manager = require('cmp_ai.context')
 
     if not context_manager.is_enabled() then
       vim.notify('Context providers are not configured. Add providers to context_providers.providers in your config.\nExample: context_providers = { providers = {\'lsp\', \'treesitter\'} }',

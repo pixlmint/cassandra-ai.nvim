@@ -32,7 +32,15 @@ function Ollama:new(o)
   return o
 end
 
-function Ollama:configure_model(cb)
+--- @class ModelConfig
+--- @field prompt fun(lines_before: string, lines_after: string, opts: table, additional_context?: string)
+--- @field model string
+--- @field options table
+
+--- @param cb fun(model_config: ModelConfig)
+function Ollama:get_model(cb)
+  -- TODO: This function should be better equipped to deal with a timeout/ bad response
+  -- TODO: Implement caching
   local url = self.params.base_url .. self.params.ps_endpoint
   self:Get(url, self.params.headers, nil, function(data)
     if type(data) == 'table' and data['models'] ~= nil then
@@ -61,44 +69,37 @@ function Ollama:configure_model(cb)
   end)
 end
 
-function Ollama:complete(lines_before, lines_after, cb, additional_context)
-  additional_context = additional_context or ''
+function Ollama:complete(prompt, cb, model_config)
+  local data = {
+    model = model_config.model,
+    keep_alive = self.params.keep_alive,
+    stream = false,
+    options = model_config.options,
+  }
 
-  self:configure_model(function(model_config)
-    local prompt = model_config.prompt or formatter.ollama_code
-    local data = {
-      model = model_config.model,
-      keep_alive = self.params.keep_alive,
-      stream = false,
-      options = model_config.options,
-    }
+  data = vim.tbl_deep_extend('force', data, prompt)
 
-    local formatted_prompt = prompt(lines_before, lines_after, nil, additional_context)
+  self:Post(self.params.base_url .. self.params.generate_endpoint, self.params.headers, data, function(answer)
+    local new_data = {}
+    if answer.error ~= nil then
+      vim.notify('Ollama error: ' .. answer.error, vim.log.levels.ERROR)
+      return
+    end
 
-    data = vim.tbl_deep_extend('force', data, formatted_prompt)
-
-    self:Post(self.params.base_url .. self.params.generate_endpoint, self.params.headers, data, function(answer)
-      local new_data = {}
-      if answer.error ~= nil then
-        vim.notify('Ollama error: ' .. answer.error, vim.log.levels.ERROR)
+    if answer.done then
+      local result_content
+      if answer.message ~= nil and answer.message.content ~= nil then
+        result_content = answer.message.content
+      elseif answer.response ~= nil then
+        result_content = answer.response
+      else
+        vim.notify('Unable to get result from ollama response: ' .. vim.fn.json_encode(answer), vim.log.levels.ERROR)
         return
       end
-
-      if answer.done then
-        local result_content
-        if answer.message ~= nil and answer.message.content ~= nil then
-          result_content = answer.message.content
-        elseif answer.response ~= nil then
-          result_content = answer.response
-        else
-          vim.notify('Unable to get result from ollama response: ' .. vim.fn.json_encode(answer), vim.log.levels.ERROR)
-          return
-        end
-        local result = result_content:gsub('<EOT>', '')
-        table.insert(new_data, result)
-      end
-      cb(new_data)
-    end)
+      local result = result_content:gsub('<EOT>', '')
+      table.insert(new_data, result)
+    end
+    cb(new_data)
   end)
 end
 

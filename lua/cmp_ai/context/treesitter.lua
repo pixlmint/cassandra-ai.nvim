@@ -1,6 +1,6 @@
 --- Treesitter Context Provider
 --- Extracts context from the syntax tree around the cursor position
-local BaseContextProvider = require('cmp_ai.context_providers.base')
+local BaseContextProvider = require('cmp_ai.context.base')
 
 local TreesitterContextProvider = BaseContextProvider:new()
 

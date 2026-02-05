@@ -9,7 +9,7 @@ local default_config = {
   providers = {},
   merge_strategy = 'concat', -- 'concat' | 'weighted' | 'custom'
   custom_merger = nil,
-  timeout_ms = 500,
+  timeout_ms = 5000,
 }
 
 local config = vim.deepcopy(default_config)
@@ -52,7 +52,7 @@ function M.register_provider(provider_config)
     -- Custom provider (function or instance)
     if type(provider_config.provider) == 'function' then
       -- Wrap function in a provider object
-      local BaseContextProvider = require('cmp_ai.context_providers.base')
+      local BaseContextProvider = require('cmp_ai.context.base')
       provider_instance = BaseContextProvider:new(provider_config.opts or {})
       provider_instance.get_context = function(self, params, callback)
         provider_config.provider(params.bufnr, params.cursor_pos, callback)
@@ -64,7 +64,7 @@ function M.register_provider(provider_config)
     end
   else
     -- Built-in provider - load by name
-    local status, ContextProvider = pcall(require, 'cmp_ai.context_providers.' .. provider_config.name)
+    local status, ContextProvider = pcall(require, 'cmp_ai.context.' .. provider_config.name)
     if not status then
       vim.notify(
         'cmp-ai: Failed to load context provider "' .. provider_config.name .. '": ' .. ContextProvider,
@@ -124,21 +124,19 @@ local function merge_contexts(contexts)
   end
 end
 
+
+--- @class ContextParameterParams
+--- @field bufnr number
+--- @field cursor_pos table
+--- @field lines_before string
+--- @field lines_after string
+--- @field filetype string
+
 --- Gather context from all registered providers
---- @param params table Context parameters
----   - bufnr: number
----   - cursor_pos: table {line, col}
----   - lines_before: string
----   - lines_after: string
----   - filetype: string
+--- @param params ContextParameterParams
 --- @param callback function Callback to invoke with merged context
 ---   Callback signature: function(merged_context: string)
 function M.gather_context(params, callback)
-  if not config.enabled or #registered_providers == 0 then
-    callback('')
-    return
-  end
-
   local results = {}
   local completed = 0
   local total = #registered_providers
@@ -219,6 +217,3 @@ function M.get_providers()
 end
 
 return M
-
-
-

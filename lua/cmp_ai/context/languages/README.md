@@ -22,7 +22,7 @@ To add support for a new language, create a new file named after the language (e
 
 ```lua
 --- Rust Language Handler
-local base = require('cmp_ai.context_providers.languages.base')
+local base = require('cmp_ai.context.languages.base')
 local M = vim.deepcopy(base)
 
 --- Extract imports for Rust

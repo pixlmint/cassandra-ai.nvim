@@ -1,6 +1,6 @@
 --- Buffer Context Provider
 --- Provides context from other open buffers with the same filetype
-local BaseContextProvider = require('cmp_ai.context_providers.base')
+local BaseContextProvider = require('cmp_ai.context.base')
 
 local BufferContextProvider = BaseContextProvider:new()
 
