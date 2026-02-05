@@ -94,6 +94,11 @@ function M.smart_extractor(ctx, current_context)
   elseif current_context == 'comment_func' then
     rng = locate_comment(ctx)
     rng = combine_ranges(rng, locate_function({ context = { bufnr = ctx.context.bufnr, cursor = { line = rng[4] + 2, col = rng[2] }}}))
+  elseif current_context == 'init' then
+    local line_count = api.nvim_buf_line_count(ctx.context.bufnr)
+    local last_line_list = api.nvim_buf_get_lines(0, line_count, line_count, false)
+    local last_line = last_line_list[1]
+    rng = { 0, 0, nil, line_count, vim.fn.strdisplaywidth(last_line), nil }
   end
   if rng == nil or #rng == 0 then
     return M.simple_extractor(ctx)
