@@ -86,14 +86,17 @@ local locate_comment = curry_textobjects('@comment.outer')
 function M.smart_extractor(ctx, current_context)
   vim.print('current_context', current_context)
   local rng
-  if current_context == 'impl' or current_context == 'comment_func' then
+  if current_context == 'impl' then
     rng = locate_function(ctx)
     rng = combine_ranges(rng, locate_comment({ context = { bufnr = ctx.context.bufnr, cursor = { line = rng[1] - 1, col = rng[2] }}}))
-    vim.print('rng', rng)
+  elseif current_context == 'comment_func' then
+    rng = locate_comment(ctx)
+    rng = combine_ranges(rng, locate_function({ context = { bufnr = ctx.context.bufnr, cursor = { line = rng[4] + 2, col = rng[2] }}}))
   end
   if rng == nil or #rng == 0 then
     return M.simple_extractor(ctx)
   else
+    vim.print('rng', rng)
     return extract_lines(rng[1], rng[4], { ctx.context.cursor.line, ctx.context.cursor.col })
   end
 end
