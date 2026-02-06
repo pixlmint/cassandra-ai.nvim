@@ -1,4 +1,4 @@
--- Test runner for cmp-ai
+-- Test runner for cassandra-ai
 -- Run with: nvim --headless --noplugin -u tests/minimal_init.lua -c "luafile tests/run_tests.lua"
 
 local MiniTest = require("mini.test")

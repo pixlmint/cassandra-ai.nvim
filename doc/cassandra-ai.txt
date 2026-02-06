@@ -1,18 +1,18 @@
-*cmp-ai.txt*                                            AI source for nvim-cmp
+*cassandra-ai.txt*                                            AI source for nvim-cmp
 
 ==============================================================================
-Table of Contents                                   *cmp-ai-table-of-contents*
+Table of Contents                                   *cassandra-ai-table-of-contents*
 
-1. cmp-ai                                                      |cmp-ai-cmp-ai|
-  - Install                                            |cmp-ai-cmp-ai-install|
-  - Setup                                                |cmp-ai-cmp-ai-setup|
-  - Dedicated cmp keybindings        |cmp-ai-cmp-ai-dedicated-cmp-keybindings|
-  - Pretty Printing Menu Items      |cmp-ai-cmp-ai-pretty-printing-menu-items|
-  - Sorting                                            |cmp-ai-cmp-ai-sorting|
-  - Debugging Information                |cmp-ai-cmp-ai-debugging-information|
+1. cassandra-ai                                                      |cassandra-ai-cassandra-ai|
+  - Install                                            |cassandra-ai-cassandra-ai-install|
+  - Setup                                                |cassandra-ai-cassandra-ai-setup|
+  - Dedicated cmp keybindings        |cassandra-ai-cassandra-ai-dedicated-cmp-keybindings|
+  - Pretty Printing Menu Items      |cassandra-ai-cassandra-ai-pretty-printing-menu-items|
+  - Sorting                                            |cassandra-ai-cassandra-ai-sorting|
+  - Debugging Information                |cassandra-ai-cassandra-ai-debugging-information|
 
 ==============================================================================
-1. cmp-ai                                                      *cmp-ai-cmp-ai*
+1. cassandra-ai                                                      *cassandra-ai-cassandra-ai*
 
 AI source for hrsh7th/nvim-cmp <https://github.com/hrsh7th/nvim-cmp>
 
@@ -23,7 +23,7 @@ For now, HuggingFace, SantaCoder, OpenAI Chat, Codestral, Ollama and Google
 Bard are implemented.
 
 
-INSTALL                                                *cmp-ai-cmp-ai-install*
+INSTALL                                                *cassandra-ai-cassandra-ai-install*
 
 
 DEPENDENCIES ~
@@ -40,8 +40,8 @@ Using Lazy <https://github.com/folke/lazy.nvim/>:
 
 >lua
     return require("lazy").setup({
-        {'tzachar/cmp-ai', dependencies = 'nvim-lua/plenary.nvim'},
-        {'hrsh7th/nvim-cmp', dependencies = {'tzachar/cmp-ai'}},
+        {'tzachar/cassandra-ai', dependencies = 'nvim-lua/plenary.nvim'},
+        {'hrsh7th/nvim-cmp', dependencies = {'tzachar/cassandra-ai'}},
     })
 <
 
@@ -50,22 +50,22 @@ And later, tell `cmp` to use this plugin:
 >lua
     require'cmp'.setup {
         sources = {
-            { name = 'cmp_ai' },
+            { name = 'cassandra_ai' },
         },
     }
 <
 
 
-SETUP                                                    *cmp-ai-cmp-ai-setup*
+SETUP                                                    *cassandra-ai-cassandra-ai-setup*
 
 Please note the use of `:` instead of a `.`
 
 To use HuggingFace:
 
 >lua
-    local cmp_ai = require('cmp_ai.config')
+    local cassandra_ai = require('cassandra_ai.config')
     
-    cmp_ai:setup({
+    cassandra_ai:setup({
       max_lines = 1000,
       provider = 'HF',
       notify = true,
@@ -87,9 +87,9 @@ youenvironment, `HF_API_KEY`.
 To use OpenAI:
 
 >lua
-    local cmp_ai = require('cmp_ai.config')
+    local cassandra_ai = require('cassandra_ai.config')
     
-    cmp_ai:setup({
+    cassandra_ai:setup({
       max_lines = 1000,
       provider = 'OpenAI',
       provider_options = {
@@ -116,9 +116,9 @@ Available models for OpenAI are `gpt-4` and `gpt-3.5-turbo`.
 To use Codestral:
 
 >lua
-    local cmp_ai = require('cmp_ai.config')
+    local cassandra_ai = require('cassandra_ai.config')
     
-    cmp_ai:setup({
+    cassandra_ai:setup({
       max_lines = 1000,
       provider = 'Codestral',
       provider_options = {
@@ -144,9 +144,9 @@ You can also use the `suffix` and `prompt` parameters, see Codestral
 <https://github.com/codestral/codestral> for more details.
 
 >lua
-    local cmp_ai = require('cmp_ai.config')
+    local cassandra_ai = require('cassandra_ai.config')
     
-    cmp_ai:setup({
+    cassandra_ai:setup({
       max_lines = 1000,
       provider = 'Codestral',
       provider_options = {
@@ -169,9 +169,9 @@ You can also use the `suffix` and `prompt` parameters, see Codestral
 To use Google Bard:
 
 >lua
-    local cmp_ai = require('cmp_ai.config')
+    local cassandra_ai = require('cassandra_ai.config')
     
-    cmp_ai:setup({
+    cassandra_ai:setup({
       max_lines = 1000,
       provider = 'Bard',
       notify = true,
@@ -195,9 +195,9 @@ expects `BARD_API_KEY` without a leading underscore).
 To use Ollama <https://ollama.ai>:
 
 >lua
-    local cmp_ai = require('cmp_ai.config')
+    local cassandra_ai = require('cassandra_ai.config')
     
-    cmp_ai:setup({
+    cassandra_ai:setup({
       max_lines = 100,
       provider = 'Ollama',
       provider_options = {
@@ -219,7 +219,7 @@ To use Ollama <https://ollama.ai>:
 <
 
 With Ollama you can also use the `suffix` parameter, typically when you want to
-use cmp-ai for code completion and you want to use the default plugin/prompt.
+use cassandra-ai for code completion and you want to use the default plugin/prompt.
 
 If the model you’re using has the following template:
 
@@ -235,9 +235,9 @@ should be the `lines_before` and suffix the `lines_after`Now you can even
 change the model without the need to adjust the prompt or suffix functions.
 
 >lua
-    local cmp_ai = require('cmp_ai.config')
+    local cassandra_ai = require('cassandra_ai.config')
     
-    cmp_ai:setup({
+    cassandra_ai:setup({
       max_lines = 100,
       provider = 'Ollama',
       provider_options = {
@@ -271,9 +271,9 @@ change the model without the need to adjust the prompt or suffix functions.
   kinds of different models and fine-tunes, so it’s best if you write your own
   prompt like the following example:
 >lua
-    local cmp_ai = require('cmp_ai.config')
+    local cassandra_ai = require('cassandra_ai.config')
     
-    cmp_ai:setup({
+    cassandra_ai:setup({
       max_lines = 100,
       provider = 'Ollama',
       provider_options = {
@@ -301,9 +301,9 @@ change the model without the need to adjust the prompt or suffix functions.
 To use Tabby:
 
 >lua
-    local cmp_ai = require('cmp_ai.config')
+    local cassandra_ai = require('cassandra_ai.config')
     
-    cmp_ai:setup({
+    cassandra_ai:setup({
       max_lines = 1000,
       provider = 'Tabby',
       notify = true,
@@ -391,7 +391,7 @@ to`false` to prevent excess noise if you perform other `vim.notify` calls
 inyour callbacks.
 
 >lua
-    cmp_ai:setup({
+    cassandra_ai:setup({
         log_errors = true,
     })
 <
@@ -410,7 +410,7 @@ iscurrently not supported. This is `--max-time` for `curl`.
 example:
 
 >lua
-    cmp_ai:setup({
+    cassandra_ai:setup({
       max_timeout_seconds = 8,
     })
 <
@@ -431,14 +431,14 @@ Which file types to ignore. For example:
     }
 <
 
-`cmp-ai` will not offer completions when `vim.bo.filetype` is `html`.
+`cassandra-ai` will not offer completions when `vim.bo.filetype` is `html`.
 
 
-DEDICATED CMP KEYBINDINGS            *cmp-ai-cmp-ai-dedicated-cmp-keybindings*
+DEDICATED CMP KEYBINDINGS            *cassandra-ai-cassandra-ai-dedicated-cmp-keybindings*
 
 As completions can take time, and you might not want to trigger expensive
-apison every keystroke, you can configure `cmp-ai` to trigger only with a
-specifickey press. For example, to bind `cmp-ai` to `<c-x>`, you can do the
+apison every keystroke, you can configure `cassandra-ai` to trigger only with a
+specifickey press. For example, to bind `cassandra-ai` to `<c-x>`, you can do the
 following:
 
 >lua
@@ -450,7 +450,7 @@ following:
           cmp.mapping.complete({
             config = {
               sources = cmp.config.sources({
-                { name = 'cmp_ai' },
+                { name = 'cassandra_ai' },
               }),
             },
           }),
@@ -460,10 +460,10 @@ following:
     })
 <
 
-Also, make sure you do not pass `cmp-ai` to the default list of `cmp` sources.
+Also, make sure you do not pass `cassandra-ai` to the default list of `cmp` sources.
 
 
-PRETTY PRINTING MENU ITEMS          *cmp-ai-cmp-ai-pretty-printing-menu-items*
+PRETTY PRINTING MENU ITEMS          *cassandra-ai-cassandra-ai-pretty-printing-menu-items*
 
 You can use the following to pretty print the completion menu (requireslspkind
 <https://github.com/onsails/lspkind-nvim> and patched
@@ -472,7 +472,7 @@ fonts(https://www.nerdfonts.com)):
 >lua
     require('cmp').setup({
       sources = {
-        { name = 'cmp_ai' },
+        { name = 'cassandra_ai' },
       },
       formatting = {
         format = require('lspkind').cmp_format({
@@ -492,9 +492,9 @@ fonts(https://www.nerdfonts.com)):
 <
 
 
-SORTING                                                *cmp-ai-cmp-ai-sorting*
+SORTING                                                *cassandra-ai-cassandra-ai-sorting*
 
-You can bump `cmp-ai` completions to the top of your completion menu like so:
+You can bump `cassandra-ai` completions to the top of your completion menu like so:
 
 >lua
     local compare = require('cmp.config.compare')
@@ -502,7 +502,7 @@ You can bump `cmp-ai` completions to the top of your completion menu like so:
       sorting = {
         priority_weight = 2,
         comparators = {
-          require('cmp_ai.compare'),
+          require('cassandra_ai.compare'),
           compare.offset,
           compare.exact,
           compare.score,
@@ -517,7 +517,7 @@ You can bump `cmp-ai` completions to the top of your completion menu like so:
 <
 
 
-DEBUGGING INFORMATION                    *cmp-ai-cmp-ai-debugging-information*
+DEBUGGING INFORMATION                    *cassandra-ai-cassandra-ai-debugging-information*
 
 To retrieve the raw response from the backend, you can set the following
 optionin `provider_options`:

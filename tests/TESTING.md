@@ -1,6 +1,6 @@
 # Testing Guide
 
-This document describes the testing setup for cmp-ai.
+This document describes the testing setup for cassandra-ai.
 
 ## Running Tests
 
@@ -26,7 +26,7 @@ The test setup follows the pattern used by [codecompanion.nvim](https://github.c
 - **tests/helpers.lua**: Test helper functions
   - `child_start()`: Start a child Neovim instance
   - `default_config`: Default test configuration
-  - `setup_plugin()`: Setup cmp-ai with test config
+  - `setup_plugin()`: Setup cassandra-ai with test config
   - `get_test_lines()`: Get sample code lines for testing
   
 - **tests/expectations.lua**: Custom assertion helpers
@@ -59,7 +59,7 @@ T['Module Name'] = new_set()
 
 T['Module Name']['should do something'] = function()
   local result = child.lua([[
-    local module = require('cmp_ai.module')
+    local module = require('cassandra_ai.module')
     return module.some_function()
   ]])
   
@@ -130,7 +130,7 @@ T['My Feature'] = new_set()
 
 T['My Feature']['should work correctly'] = function()
   local result = child.lua([[
-    local my_module = require('cmp_ai.my_module')
+    local my_module = require('cassandra_ai.my_module')
     return my_module.my_function('test')
   ]])
   
@@ -157,7 +157,7 @@ You can also add print statements in the child Neovim code:
 
 ```lua
 local result = child.lua([[
-  local module = require('cmp_ai.module')
+  local module = require('cassandra_ai.module')
   print('Debug:', vim.inspect(module))
   return module.function()
 ]])

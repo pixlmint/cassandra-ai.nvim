@@ -22,7 +22,7 @@ To add support for a new language, create a new file named after the language (e
 
 ```lua
 --- Rust Language Handler
-local base = require('cmp_ai.context.languages.base')
+local base = require('cassandra_ai.context.languages.base')
 local M = vim.deepcopy(base)
 
 --- Extract imports for Rust
@@ -213,7 +213,7 @@ To test a language handler:
 
 1. Open a file in that language
 2. Position cursor on a class member access (e.g., `obj.method()`)
-3. Run `:CmpAiContext lsp`
+3. Run `:CassandraAiContext lsp`
 4. Check the output includes:
    - Imports (if applicable)
    - Class definition

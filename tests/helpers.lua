@@ -34,12 +34,12 @@ Helpers.default_config = {
 -- Setup the plugin with test configuration
 Helpers.setup_plugin = function(config)
   local test_config = vim.tbl_deep_extend('force', Helpers.default_config, config or {})
-  require('cmp_ai').setup(test_config)
+  require('cassandra_ai').setup(test_config)
 end
 
 -- Mock HTTP responses
 Helpers.mock_http_response = function(response_data)
-  local requests_module = require('cmp_ai.requests')
+  local requests_module = require('cassandra_ai.requests')
   requests_module.post = function(self, url, headers, body, callback)
     callback(response_data)
   end

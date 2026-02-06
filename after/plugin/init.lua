@@ -1,1 +1,1 @@
-require('cmp_ai').setup()
+require('cassandra_ai').setup()

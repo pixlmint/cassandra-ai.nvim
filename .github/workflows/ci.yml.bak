@@ -27,7 +27,7 @@ jobs:
       - name: panvimdoc
         uses: kdheepak/panvimdoc@v3.0.3
         with:
-          vimdoc: cmp-ai
+          vimdoc: cassandra-ai
           description: AI source for nvim-cmp
       - name: Apply stylua
         uses: JohnnyMorganz/stylua-action@v2.0.0

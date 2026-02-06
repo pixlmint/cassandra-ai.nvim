@@ -1,6 +1,6 @@
 --- Diagnostics Context Provider
 --- Extracts diagnostic messages from LSP
-local BaseContextProvider = require('cmp_ai.context.base')
+local BaseContextProvider = require('cassandra_ai.context.base')
 
 local DiagnosticsContextProvider = BaseContextProvider:new()
 

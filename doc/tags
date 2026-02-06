@@ -1,9 +1,6 @@
-cmp-ai-cmp-ai	cmp-ai.txt	/*cmp-ai-cmp-ai*
-cmp-ai-cmp-ai-debugging-information	cmp-ai.txt	/*cmp-ai-cmp-ai-debugging-information*
-cmp-ai-cmp-ai-dedicated-cmp-keybindings	cmp-ai.txt	/*cmp-ai-cmp-ai-dedicated-cmp-keybindings*
-cmp-ai-cmp-ai-install	cmp-ai.txt	/*cmp-ai-cmp-ai-install*
-cmp-ai-cmp-ai-pretty-printing-menu-items	cmp-ai.txt	/*cmp-ai-cmp-ai-pretty-printing-menu-items*
-cmp-ai-cmp-ai-setup	cmp-ai.txt	/*cmp-ai-cmp-ai-setup*
-cmp-ai-cmp-ai-sorting	cmp-ai.txt	/*cmp-ai-cmp-ai-sorting*
-cmp-ai-table-of-contents	cmp-ai.txt	/*cmp-ai-table-of-contents*
-cmp-ai.txt	cmp-ai.txt	/*cmp-ai.txt*
+cassandra-ai-cassandra-ai	cassandra-ai.txt	/*cassandra-ai-cassandra-ai*
+cassandra-ai-cassandra-ai-debugging-information	cassandra-ai.txt	/*cassandra-ai-cassandra-ai-debugging-information*
+cassandra-ai-cassandra-ai-install	cassandra-ai.txt	/*cassandra-ai-cassandra-ai-install*
+cassandra-ai-cassandra-ai-setup	cassandra-ai.txt	/*cassandra-ai-cassandra-ai-setup*
+cassandra-ai-table-of-contents	cassandra-ai.txt	/*cassandra-ai-table-of-contents*
+cassandra-ai.txt	cassandra-ai.txt	/*cassandra-ai.txt*

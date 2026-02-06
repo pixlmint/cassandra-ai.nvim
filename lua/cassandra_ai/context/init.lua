@@ -52,7 +52,7 @@ function M.register_provider(provider_config)
     -- Custom provider (function or instance)
     if type(provider_config.provider) == 'function' then
       -- Wrap function in a provider object
-      local BaseContextProvider = require('cmp_ai.context.base')
+      local BaseContextProvider = require('cassandra_ai.context.base')
       provider_instance = BaseContextProvider:new(provider_config.opts or {})
       provider_instance.get_context = function(self, params, callback)
         provider_config.provider(params.bufnr, params.cursor_pos, callback)
@@ -64,10 +64,10 @@ function M.register_provider(provider_config)
     end
   else
     -- Built-in provider - load by name
-    local status, ContextProvider = pcall(require, 'cmp_ai.context.' .. provider_config.name)
+    local status, ContextProvider = pcall(require, 'cassandra_ai.context.' .. provider_config.name)
     if not status then
       vim.notify(
-        'cmp-ai: Failed to load context provider "' .. provider_config.name .. '": ' .. ContextProvider,
+        'cassandra-ai: Failed to load context provider "' .. provider_config.name .. '": ' .. ContextProvider,
         vim.log.levels.WARN
       )
       return
@@ -84,7 +84,7 @@ function M.register_provider(provider_config)
     })
   else
     vim.notify(
-      'cmp-ai: Context provider "' .. (provider_config.name or 'custom') .. '" is not available in this environment',
+      'cassandra-ai: Context provider "' .. (provider_config.name or 'custom') .. '" is not available in this environment',
       vim.log.levels.DEBUG
     )
   end
@@ -189,7 +189,7 @@ function M.gather_context(params, callback)
 
     if not success then
       vim.notify(
-        'cmp-ai: Error in context provider "' .. provider_data.name .. '": ' .. tostring(err),
+        'cassandra-ai: Error in context provider "' .. provider_data.name .. '": ' .. tostring(err),
         vim.log.levels.WARN
       )
       -- Count as completed to avoid hanging

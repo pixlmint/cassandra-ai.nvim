@@ -1,4 +1,4 @@
-local requests = require('cmp_ai.requests')
+local requests = require('cassandra_ai.requests')
 
 Tabby = requests:new(nil)
 
@@ -41,7 +41,7 @@ function Tabby:complete(lines_before, lines_after, cb)
     seed = self.params.options.seed,
   }
 
-  self:Get(self.params.base_url, headers, data, function(answer)
+  return self:Get(self.params.base_url, headers, data, function(answer)
     local new_data = {}
     if answer.error ~= nil then
       vim.notify('Tabby error: ' .. answer.error)

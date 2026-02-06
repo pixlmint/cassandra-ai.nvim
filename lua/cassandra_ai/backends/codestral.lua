@@ -1,4 +1,4 @@
-local requests = require('cmp_ai.requests')
+local requests = require('cassandra_ai.requests')
 
 Codestral = requests:new(nil)
 BASE_URL = 'https://codestral.mistral.ai/v1/fim/completions'
@@ -41,7 +41,7 @@ function Codestral:complete(lines_before, lines_after, cb)
   }
 
   data = vim.tbl_deep_extend('keep', data, self.params)
-  self:Get(BASE_URL, self.headers, data, function(answer)
+  return self:Get(BASE_URL, self.headers, data, function(answer)
     local new_data = {}
     if answer.choices then
       for _, response in ipairs(answer.choices) do

@@ -1,4 +1,4 @@
---- Logger module for cmp-ai data collection
+--- Logger module for cassandra-ai data collection
 --- Implements fire-and-forget async writes with buffering
 
 local Logger = {}
@@ -10,7 +10,7 @@ local instance = nil
 -- Default config
 local default_config = {
   enabled = false,
-  data_file = vim.fn.stdpath('data') .. '/cmp-ai/completions.jsonl',
+  data_file = vim.fn.stdpath('data') .. '/cassandra-ai/completions.jsonl',
   buffer_size = 50,
 }
 
@@ -161,10 +161,10 @@ function Logger:flush()
 
       -- Optional: notify on error if log_errors is configured
       if exit_code ~= 0 then
-        local cmp_ai_config = require('cmp_ai.config')
-        if cmp_ai_config and cmp_ai_config:get('log_errors') then
+        local cassandra_ai_config = require('cassandra_ai.config')
+        if cassandra_ai_config and cassandra_ai_config:get('log_errors') then
           vim.notify(
-            string.format('cmp-ai: Failed to write data log (exit code %d)', exit_code),
+            string.format('cassandra-ai: Failed to write data log (exit code %d)', exit_code),
             vim.log.levels.WARN
           )
         end
@@ -236,7 +236,7 @@ function Logger:_setup_autocmds()
     callback = function()
       Logger:shutdown()
     end,
-    desc = 'Flush cmp-ai data collection buffer on exit',
+    desc = 'Flush cassandra-ai data collection buffer on exit',
   })
 end
 

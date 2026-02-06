@@ -1,5 +1,5 @@
 local job = require('plenary.job')
-local conf = require('cmp_ai.config')
+local conf = require('cassandra_ai.config')
 Service = {}
 
 function Service:new(o)
@@ -19,11 +19,11 @@ function Service:json_decode(data)
 end
 
 function Service:Post(url, headers, data, cb)
-  Service:_Request(url, headers, data, cb, { "-X", "POST" })
+  return Service:_Request(url, headers, data, cb, { '-X', 'POST' })
 end
 
 function Service:Get(url, headers, data, cb)
-  Service:_Request(url, headers, data, cb)
+  return Service:_Request(url, headers, data, cb)
 end
 
 function Service:_Request(url, headers, data, cb, args)
@@ -53,7 +53,7 @@ function Service:_Request(url, headers, data, cb, args)
     args[#args + 1] = '--max-time'
     args[#args + 1] = tonumber(timeout_seconds)
   elseif timeout_seconds ~= nil then
-    vim.notify('cmp-ai: your max_timeout_seconds config is not a number', vim.log.levels.WARN)
+    vim.notify('cassandra-ai: your max_timeout_seconds config is not a number', vim.log.levels.WARN)
   end
 
   for _, h in ipairs(headers) do
@@ -63,35 +63,35 @@ function Service:_Request(url, headers, data, cb, args)
 
   args[#args + 1] = url
 
-  job
-      :new({
-        command = 'curl',
-        args = args,
-        on_exit = vim.schedule_wrap(function(response, exit_code)
-          if tmpfname ~= nil then
-            os.remove(tmpfname)
-          end
-          if exit_code ~= 0 then
-            if conf:get('log_errors') then
-              vim.notify('An Error Occurred ...', vim.log.levels.ERROR)
-            end
-            cb({ { error = 'ERROR: API Error' } })
-          end
+  local j = job:new({
+    command = 'curl',
+    args = args,
+    on_exit = vim.schedule_wrap(function(response, exit_code)
+      if tmpfname ~= nil then
+        os.remove(tmpfname)
+      end
+      if exit_code ~= 0 then
+        if conf:get('log_errors') then
+          vim.notify('An Error Occurred ...', vim.log.levels.ERROR)
+        end
+        cb({ { error = 'ERROR: API Error' } })
+      end
 
-          local result = table.concat(response:result(), '\n')
-          local json = self:json_decode(result)
-          vim.api.nvim_exec_autocmds({ "User" }, {
-            pattern = "CmpAiRequestFinished",
-            data = { response = json }
-          })
-          if json == nil then
-            cb({ { error = 'No Response.' } })
-          else
-            cb(json)
-          end
-        end),
+      local result = table.concat(response:result(), '\n')
+      local json = self:json_decode(result)
+      vim.api.nvim_exec_autocmds({ 'User' }, {
+        pattern = 'CassandraAiRequestFinished',
+        data = { response = json }
       })
-      :start()
+      if json == nil then
+        cb({ { error = 'No Response.' } })
+      else
+        cb(json)
+      end
+    end),
+  })
+  j:start()
+  return j
 end
 
 return Service

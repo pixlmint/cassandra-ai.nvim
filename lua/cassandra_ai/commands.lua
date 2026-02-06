@@ -1,10 +1,10 @@
---- User commands for cmp-ai
+--- User commands for cassandra-ai
 local M = {}
 
 --- Show context from a specific provider in a popup
 --- @param provider_name string The name of the provider to test
 local function show_context(provider_name)
-  local context_manager = require('cmp_ai.context')
+  local context_manager = require('cassandra_ai.context')
 
   if not context_manager.is_enabled() then
     vim.notify('Context providers are not configured. Add providers to context_providers.providers in your config.\nExample: context_providers = { providers = {\'lsp\', \'treesitter\'} }',
@@ -19,7 +19,7 @@ local function show_context(provider_name)
   local filetype = vim.bo.filetype
 
   -- Get context lines
-  local conf = require('cmp_ai.config')
+  local conf = require('cassandra_ai.config')
   local max_lines = conf:get('max_lines') or 50
 
   local cur_line = vim.api.nvim_get_current_line()
@@ -158,12 +158,12 @@ end
 
 --- Setup user commands
 function M.setup()
-  -- Create CmpAiContext command
-  vim.api.nvim_create_user_command('CmpAiContext', function(opts)
+  -- Create CassandraAiContext command
+  vim.api.nvim_create_user_command('CassandraAiContext', function(opts)
     local provider_name = opts.args
 
     if not provider_name or provider_name == '' then
-      vim.notify('Usage: :CmpAiContext <provider_name>\nExample: :CmpAiContext lsp', vim.log.levels.ERROR)
+      vim.notify('Usage: :CassandraAiContext <provider_name>\nExample: :CassandraAiContext lsp', vim.log.levels.ERROR)
       return
     end
 
@@ -172,7 +172,7 @@ function M.setup()
     nargs = 1,
     desc = 'Show context from a specific context provider',
     complete = function()
-      local context_manager = require('cmp_ai.context')
+      local context_manager = require('cassandra_ai.context')
 
       if not context_manager.is_enabled() then
         return {}
@@ -189,9 +189,9 @@ function M.setup()
     end,
   })
 
-  -- Create CmpAiContextAll command to show all contexts
-  vim.api.nvim_create_user_command('CmpAiContextAll', function()
-    local context_manager = require('cmp_ai.context')
+  -- Create CassandraAiContextAll command to show all contexts
+  vim.api.nvim_create_user_command('CassandraAiContextAll', function()
+    local context_manager = require('cassandra_ai.context')
 
     if not context_manager.is_enabled() then
       vim.notify('Context providers are not configured. Add providers to context_providers.providers in your config.\nExample: context_providers = { providers = {\'lsp\', \'treesitter\'} }',
@@ -206,7 +206,7 @@ function M.setup()
     local filetype = vim.bo.filetype
 
     -- Get context lines
-    local conf = require('cmp_ai.config')
+    local conf = require('cassandra_ai.config')
     local max_lines = conf:get('max_lines') or 50
 
     local cur_line = vim.api.nvim_get_current_line()
@@ -259,7 +259,7 @@ function M.setup()
       -- Add separator
       table.insert(lines, '')
       table.insert(lines, '---')
-      table.insert(lines, 'Press q to close | Use :CmpAiContext <provider> to see individual providers')
+      table.insert(lines, 'Press q to close | Use :CassandraAiContext <provider> to see individual providers')
 
       vim.api.nvim_buf_set_lines(popup_buf, 0, -1, false, lines)
       vim.api.nvim_buf_set_option(popup_buf, 'modifiable', false)
@@ -302,9 +302,9 @@ function M.setup()
     desc = 'Show merged context from all enabled context providers',
   })
 
-  -- Create CmpAiContextList command to list available providers
-  vim.api.nvim_create_user_command('CmpAiContextList', function()
-    local context_manager = require('cmp_ai.context')
+  -- Create CassandraAiContextList command to list available providers
+  vim.api.nvim_create_user_command('CassandraAiContextList', function()
+    local context_manager = require('cassandra_ai.context')
 
     if not context_manager.is_enabled() then
       vim.notify('Context providers are not configured. Add providers to context_providers.providers in your config.\nExample: context_providers = { providers = {\'lsp\', \'treesitter\'} }',
@@ -326,7 +326,7 @@ function M.setup()
     end
 
     table.insert(lines, '')
-    table.insert(lines, 'Usage: :CmpAiContext <provider_name>')
+    table.insert(lines, 'Usage: :CassandraAiContext <provider_name>')
 
     vim.notify(table.concat(lines, '\n'), vim.log.levels.INFO)
   end, {

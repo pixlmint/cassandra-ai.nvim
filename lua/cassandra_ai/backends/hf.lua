@@ -1,5 +1,5 @@
-local requests = require('cmp_ai.requests')
-local formatter = require('cmp_ai.prompt_formatters').formatters
+local requests = require('cassandra_ai.requests')
+local formatter = require('cassandra_ai.prompt_formatters').formatters
 
 HF = requests:new(nil)
 BASE_URL = 'https://api-inference.huggingface.co/models/bigcode/santacoder'
@@ -43,7 +43,7 @@ function HF:complete(lines_before, lines_after, cb)
       stop = { '<|endoftext|>', '<fim-' },
     },
   }
-  self:Get(BASE_URL, self.headers, data, function(answer)
+  return self:Get(BASE_URL, self.headers, data, function(answer)
     local new_data = {}
     if answer.error ~= nil then
       vim.notify('HuggingFace error: ' .. answer.error)

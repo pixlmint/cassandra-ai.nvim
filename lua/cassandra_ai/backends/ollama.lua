@@ -1,5 +1,5 @@
-local requests = require('cmp_ai.requests')
-local formatter = require('cmp_ai.prompt_formatters').formatters
+local requests = require('cassandra_ai.requests')
+local formatter = require('cassandra_ai.prompt_formatters').formatters
 
 Ollama = requests:new(nil)
 
@@ -79,7 +79,7 @@ function Ollama:complete(prompt, cb, model_config)
 
   data = vim.tbl_deep_extend('force', data, prompt)
 
-  self:Post(self.params.base_url .. self.params.generate_endpoint, self.params.headers, data, function(answer)
+  return self:Post(self.params.base_url .. self.params.generate_endpoint, self.params.headers, data, function(answer)
     local new_data = {}
     if answer.error ~= nil then
       vim.notify('Ollama error: ' .. answer.error, vim.log.levels.ERROR)

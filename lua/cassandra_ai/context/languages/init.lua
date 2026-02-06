@@ -31,27 +31,27 @@ function M.get_handler(filetype)
 
   if not handler_name then
     -- Try to load handler with same name as filetype
-    local status, handler = pcall(require, 'cmp_ai.context.languages.' .. filetype)
+    local status, handler = pcall(require, 'cassandra_ai.context.languages.' .. filetype)
     if status then
       handlers[filetype] = handler
       return handler
     end
 
     -- Fall back to base handler
-    handler = require('cmp_ai.context.languages.base')
+    handler = require('cassandra_ai.context.languages.base')
     handlers[filetype] = handler
     return handler
   end
 
   -- Load the mapped handler
-  local status, handler = pcall(require, 'cmp_ai.context.languages.' .. handler_name)
+  local status, handler = pcall(require, 'cassandra_ai.context.languages.' .. handler_name)
   if status then
     handlers[filetype] = handler
     return handler
   end
 
   -- Fall back to base handler
-  handler = require('cmp_ai.context.languages.base')
+  handler = require('cassandra_ai.context.languages.base')
   handlers[filetype] = handler
   return handler
 end
@@ -61,7 +61,7 @@ end
 --- @return boolean
 function M.has_handler(filetype)
   return filetype_map[filetype] ~= nil or
-      pcall(require, 'cmp_ai.context.languages.' .. filetype)
+      pcall(require, 'cassandra_ai.context.languages.' .. filetype)
 end
 
 --- Get list of supported languages
