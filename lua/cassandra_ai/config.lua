@@ -28,6 +28,10 @@ local conf = {
 
   log_errors = true,
 
+  -- File logging
+  log_file = vim.fn.stdpath('data') .. '/cassandra-ai/cassandra-ai.log',
+  log_level = 'INFO', -- DEBUG | INFO | WARN | ERROR
+
   -- Data collection (opt-in)
   collect_data = false,
   data_file = vim.fn.stdpath('data') .. '/cassandra-ai/completions.jsonl',
@@ -85,6 +89,13 @@ function M:setup(params)
       vim.notify('Bad provider in config: ' .. provider_name, vim.log.levels.ERROR)
     end
   end
+
+  -- Initialize logger
+  local logger = require('cassandra_ai.logger')
+  logger.init({
+    log_file = conf.log_file,
+    log_level = conf.log_level,
+  })
 
   -- Initialize telemetry if data collection is enabled
   if conf.collect_data then
