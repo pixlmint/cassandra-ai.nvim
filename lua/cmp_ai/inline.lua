@@ -116,41 +116,6 @@ local function cancel_debounce()
 end
 
 -- ---------------------------------------------------------------------------
--- Context extraction (standalone, no cmp dependency)
--- ---------------------------------------------------------------------------
-
-local function extract_context(buf)
-  local max_lines = conf:get('max_lines')
-  local cursor = vim.api.nvim_win_get_cursor(0) -- {1-indexed row, 0-indexed col}
-  local row = cursor[1]                         -- 1-indexed
-  local col = cursor[2]                         -- 0-indexed (bytes)
-
-  local line_num = row - 1                      -- 0-indexed for nvim_buf_get_lines
-
-  local cur_line_list = vim.api.nvim_buf_get_lines(buf, line_num, line_num + 1, false)
-  local cur_line = cur_line_list[1] or ''
-
-  -- UTF-8-safe split at cursor
-  local cur_line_before = vim.fn.strpart(cur_line, 0, col, 1)
-  local cur_line_after = vim.fn.strpart(cur_line, col, vim.fn.strdisplaywidth(cur_line), 1)
-
-  local start_line = math.max(0, line_num - max_lines)
-  local end_line = math.min(vim.api.nvim_buf_line_count(buf), line_num + 1 + max_lines)
-
-  local lines_before = vim.api.nvim_buf_get_lines(buf, start_line, line_num, false)
-  table.insert(lines_before, cur_line_before)
-
-  local lines_after = vim.api.nvim_buf_get_lines(buf, line_num + 1, end_line, false)
-  table.insert(lines_after, 1, cur_line_after)
-
-  return {
-    lines_before = table.concat(lines_before, '\n'),
-    lines_after = table.concat(lines_after, '\n'),
-    cursor = cursor,
-  }
-end
-
--- ---------------------------------------------------------------------------
 -- Main trigger
 -- ---------------------------------------------------------------------------
 
@@ -173,8 +138,7 @@ function M.trigger()
   local my_gen = generation
 
   bufnr = vim.api.nvim_get_current_buf()
-  local ctx = extract_context(bufnr)
-  cursor_pos = ctx.cursor
+  cursor_pos = vim.api.nvim_win_get_cursor(0)
   completions = {}
   current_index = 0
 
@@ -183,76 +147,101 @@ function M.trigger()
     return
   end
 
-  local before = ctx.lines_before
-  local after = ctx.lines_after
+  local function do_complete(surround_context)
+    if my_gen ~= generation then return end
 
-  local request_id = generate_uuid()
-  local logger = require('cmp_ai.logger')
+    local before = surround_context.lines_before
+    local after = surround_context.lines_after
 
-  local start_time
+    local request_id = generate_uuid()
+    local logger = require('cmp_ai.logger')
 
-  if logger:is_enabled() then
-    local provider = conf:get('provider')
-    logger:log_request(request_id, {
-      cwd = vim.fn.getcwd(),
-      filename = vim.api.nvim_buf_get_name(0),
-      filetype = vim.bo.filetype,
-      cursor = { line = ctx.cursor[1], col = ctx.cursor[2] },
-      lines_before = before,
-      lines_after = after,
-      provider = provider.name,
-      provider_config = safe_serialize_config(provider.params),
-    })
-  end
+    local start_time
 
-  vim.api.nvim_exec_autocmds({ 'User' }, {
-    pattern = 'CmpAiRequestStarted',
-  })
-
-  local function on_complete(data)
     if logger:is_enabled() then
-      logger:log_response(request_id, {
-        response_raw = data,
-        response_time_ms = (os.clock() - start_time) * 1000
+      local provider = conf:get('provider')
+      logger:log_request(request_id, {
+        cwd = vim.fn.getcwd(),
+        filename = vim.api.nvim_buf_get_name(0),
+        filetype = vim.bo.filetype,
+        cursor = { line = cursor_pos[1], col = cursor_pos[2] },
+        lines_before = before,
+        lines_after = after,
+        provider = provider.name,
+        provider_config = safe_serialize_config(provider.params),
       })
-    end
-    -- Stale check
-    if my_gen ~= generation then
-      return
-    end
-    if not vim.api.nvim_buf_is_valid(bufnr) then
-      return
-    end
-    if vim.fn.mode() ~= 'i' then
-      return
-    end
-    -- Check cursor hasn't moved
-    local cur = vim.api.nvim_win_get_cursor(0)
-    if cur[1] ~= cursor_pos[1] or cur[2] ~= cursor_pos[2] then
-      return
     end
 
     vim.api.nvim_exec_autocmds({ 'User' }, {
-      pattern = 'CmpAiRequestComplete',
+      pattern = 'CmpAiRequestStarted',
     })
 
-    if not data or #data == 0 then
-      return
+    local function on_complete(data)
+      if logger:is_enabled() then
+        logger:log_response(request_id, {
+          response_raw = data,
+          response_time_ms = (os.clock() - start_time) * 1000
+        })
+      end
+      -- Stale check
+      if my_gen ~= generation then
+        return
+      end
+      if not vim.api.nvim_buf_is_valid(bufnr) then
+        return
+      end
+      if vim.fn.mode() ~= 'i' then
+        return
+      end
+      -- Check cursor hasn't moved
+      local cur = vim.api.nvim_win_get_cursor(0)
+      if cur[1] ~= cursor_pos[1] or cur[2] ~= cursor_pos[2] then
+        return
+      end
+
+      vim.api.nvim_exec_autocmds({ 'User' }, {
+        pattern = 'CmpAiRequestComplete',
+      })
+
+      if not data or #data == 0 then
+        return
+      end
+
+      completions = data
+      current_index = 1
+      render_ghost_text(completions[current_index])
     end
 
-    completions = data
-    current_index = 1
-    render_ghost_text(completions[current_index])
-  end
+    local context_manager = require('cmp_ai.context')
 
-  local context_manager = require('cmp_ai.context')
+    -- Ollama uses get_model; other backends use complete(before, after, cb) directly
+    if service.get_model then
+      service:get_model(function(model_config)
+        if my_gen ~= generation then return end
 
-  -- Ollama uses get_model; other backends use complete(before, after, cb) directly
-  if service.get_model then
-    service:get_model(function(model_config)
-      if my_gen ~= generation then return end
-
-      if context_manager.is_enabled() and model_config.allows_extra_context then
+        if context_manager.is_enabled() and model_config.allows_extra_context then
+          local params = {
+            bufnr = bufnr,
+            cursor_pos = { line = cursor_pos[1] - 1, col = cursor_pos[2] },
+            lines_before = before,
+            lines_after = after,
+            filetype = ft,
+          }
+          context_manager.gather_context(params, function(additional_context)
+            if my_gen ~= generation then return end
+            start_time = os.clock()
+            local prompt = model_config.prompt(before, after, nil, additional_context)
+            current_job = service:complete(prompt, on_complete, model_config)
+          end)
+        else
+          local prompt = model_config.prompt(before, after)
+          start_time = os.clock()
+          current_job = service:complete(prompt, on_complete, model_config)
+        end
+      end)
+    else
+      -- Non-Ollama backends: simple complete(before, after, cb)
+      if context_manager.is_enabled() then
         local params = {
           bufnr = bufnr,
           cursor_pos = { line = cursor_pos[1] - 1, col = cursor_pos[2] },
@@ -263,34 +252,30 @@ function M.trigger()
         context_manager.gather_context(params, function(additional_context)
           if my_gen ~= generation then return end
           start_time = os.clock()
-          local prompt = model_config.prompt(before, after, nil, additional_context)
-          current_job = service:complete(prompt, on_complete, model_config)
+          current_job = service:complete(before, after, on_complete, additional_context)
         end)
       else
-        local prompt = model_config.prompt(before, after)
         start_time = os.clock()
-        current_job = service:complete(prompt, on_complete, model_config)
+        current_job = service:complete(before, after, on_complete)
       end
+    end
+  end
+
+  local surround_extractor = require('cmp_ai.context.surround_extractor')
+  local ctx = {
+    cursor = { line = cursor_pos[1], col = cursor_pos[2] },
+    bufnr = bufnr,
+  }
+
+  local strategy = conf:get('surround_extractor_strategy')
+  if strategy == 'smart' then
+    require('cmp_ai.context.utils').detect_suggestion_context(bufnr, cursor_pos, function(current_context)
+      if my_gen ~= generation then return end
+      ctx.current_context = current_context
+      do_complete(surround_extractor.smart_extractor(ctx))
     end)
   else
-    -- Non-Ollama backends: simple complete(before, after, cb)
-    if context_manager.is_enabled() then
-      local params = {
-        bufnr = bufnr,
-        cursor_pos = { line = cursor_pos[1] - 1, col = cursor_pos[2] },
-        lines_before = before,
-        lines_after = after,
-        filetype = ft,
-      }
-      context_manager.gather_context(params, function(additional_context)
-        if my_gen ~= generation then return end
-        start_time = os.clock()
-        current_job = service:complete(before, after, on_complete, additional_context)
-      end)
-    else
-      start_time = os.clock()
-      current_job = service:complete(before, after, on_complete)
-    end
+    do_complete(surround_extractor.simple_extractor(ctx))
   end
 end
 

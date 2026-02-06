@@ -19,20 +19,25 @@ local function textobjects()
 end
 
 
-local function extract_lines(start_line, end_line, cursor)
-  local line_num = cursor[1]
-  local cur_line_list = api.nvim_buf_get_lines(0, line_num, line_num, false)
-  local cur_line = cur_line_list[1]
+--- Extract lines before and after cursor position
+--- @param start_line number 0-indexed start line
+--- @param end_line number 0-indexed end line (exclusive)
+--- @param line_0 number 0-indexed cursor line
+--- @param col number 0-indexed byte column
+--- @param buf number buffer handle
+local function extract_lines(start_line, end_line, line_0, col, buf)
+  local cur_line_list = api.nvim_buf_get_lines(buf, line_0, line_0 + 1, false)
+  local cur_line = cur_line_list[1] or ''
   -- properly handle utf8
-  local cur_line_before = vim.fn.strpart(cur_line, 0, math.max(cursor[2] - 1, 0), 1)
+  local cur_line_before = vim.fn.strpart(cur_line, 0, col, 1)
 
   -- properly handle utf8
-  local cur_line_after = vim.fn.strpart(cur_line, math.max(cursor[2] - 1, 0), vim.fn.strdisplaywidth(cur_line), 1)
+  local cur_line_after = vim.fn.strpart(cur_line, col, vim.fn.strdisplaywidth(cur_line), 1)
 
-  local lines_before = api.nvim_buf_get_lines(0, start_line, line_num, false)
+  local lines_before = api.nvim_buf_get_lines(buf, start_line, line_0, false)
   table.insert(lines_before, cur_line_before)
 
-  local lines_after = api.nvim_buf_get_lines(0, line_num + 1, end_line, false)
+  local lines_after = api.nvim_buf_get_lines(buf, line_0 + 1, end_line, false)
   table.insert(lines_after, 1, cur_line_after)
 
   return {
@@ -42,23 +47,31 @@ local function extract_lines(start_line, end_line, cursor)
 end
 
 
---- @param ctx table
+--- @class SurroundContext
+--- @field cursor {line: number, col: number} cursor position (1-indexed line, 0-indexed byte col) as from nvim_win_get_cursor
+--- @field bufnr number buffer handle
+--- @field current_context? string context type for smart extraction ('impl'|'comment_func'|'init')
+
+--- @param ctx SurroundContext
 function M.simple_extractor(ctx)
   local max_lines = conf:get('max_lines')
 
-  local cursor = ctx.context.cursor
+  local line_0 = ctx.cursor.line - 1
+  local col = ctx.cursor.col
 
-  local start_line = math.max(0, cursor.line - max_lines)
-  local end_line = cursor.line + max_lines
+  local start_line = math.max(0, line_0 - max_lines)
+  local end_line = line_0 + 1 + max_lines
 
-  return extract_lines(start_line, end_line, { cursor.line, cursor.col })
+  return extract_lines(start_line, end_line, line_0, col, ctx.bufnr)
 end
 
 local function curry_textobjects(selector, source)
   source = source or 'textobjects'
 
+  --- @param ctx SurroundContext
   return function(ctx)
-    return textobjects().textobject_at_point(selector, source, ctx.context.bufnr, { ctx.context.cursor.line, ctx.context.cursor.col }, {})
+    local line_0 = ctx.cursor.line - 1
+    return textobjects().textobject_at_point(selector, source, ctx.bufnr, { line_0, ctx.cursor.col }, {})
   end
 end
 
@@ -84,25 +97,29 @@ end
 local locate_function = curry_textobjects('@function.outer')
 local locate_comment = curry_textobjects('@comment.outer')
 
---- @param ctx table
-function M.smart_extractor(ctx, current_context)
+--- @param ctx SurroundContext
+function M.smart_extractor(ctx)
+  local current_context = ctx.current_context
   local rng
   if current_context == 'impl' then
     rng = locate_function(ctx)
-    rng = combine_ranges(rng, locate_comment({ context = { bufnr = ctx.context.bufnr, cursor = { line = rng[1] - 1, col = rng[2] }}}))
+    -- Look for comment above the function; rng[1] is 0-indexed, convert to 1-indexed for ctx
+    rng = combine_ranges(rng, locate_comment({ bufnr = ctx.bufnr, cursor = { line = rng[1], col = rng[2] }}))
   elseif current_context == 'comment_func' then
     rng = locate_comment(ctx)
-    rng = combine_ranges(rng, locate_function({ context = { bufnr = ctx.context.bufnr, cursor = { line = rng[4] + 2, col = rng[2] }}}))
+    -- Look for function below the comment; rng[4] is 0-indexed end row
+    rng = combine_ranges(rng, locate_function({ bufnr = ctx.bufnr, cursor = { line = rng[4] + 3, col = rng[2] }}))
   elseif current_context == 'init' then
-    local line_count = api.nvim_buf_line_count(ctx.context.bufnr)
-    local last_line_list = api.nvim_buf_get_lines(0, line_count, line_count, false)
-    local last_line = last_line_list[1]
+    local line_count = api.nvim_buf_line_count(ctx.bufnr)
+    local last_line_list = api.nvim_buf_get_lines(ctx.bufnr, line_count - 1, line_count, false)
+    local last_line = last_line_list[1] or ''
     rng = { 0, 0, nil, line_count, vim.fn.strdisplaywidth(last_line), nil }
   end
   if rng == nil or #rng == 0 then
     return M.simple_extractor(ctx)
   else
-    return extract_lines(rng[1], rng[4], { ctx.context.cursor.line, ctx.context.cursor.col })
+    local line_0 = ctx.cursor.line - 1
+    return extract_lines(rng[1], rng[4], line_0, ctx.cursor.col, ctx.bufnr)
   end
 end
 
