@@ -41,6 +41,16 @@ function Telemetry:is_enabled()
   return config.enabled
 end
 
+--- Set enabled state at runtime
+--- @param enabled boolean
+function Telemetry:set_enabled(enabled)
+  config.enabled = enabled
+  if enabled then
+    self:_setup_autocmds()
+    self:_setup_timer()
+  end
+end
+
 --- Log a request event
 --- @param request_id string UUID for this request
 --- @param data table Request data (cwd, filename, filetype, cursor, lines_before, lines_after, provider, provider_config)

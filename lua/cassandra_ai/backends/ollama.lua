@@ -38,8 +38,34 @@ end
 --- @field model string
 --- @field options table
 
+--- Set a model override, bypassing automatic model selection
+--- @param model_name string|nil Model name to use, or nil/"auto" to clear
+function Ollama:set_model_override(model_name)
+  if model_name == nil or model_name == 'auto' then
+    self.params.model_override = nil
+  else
+    self.params.model_override = model_name
+  end
+end
+
 --- @param cb fun(model_config: ModelConfig)
 function Ollama:get_model(cb)
+  -- If a model override is set, use it directly
+  if self.params.model_override then
+    local model = self.params.model_override
+    local model_config = self.params.model_configs[model]
+    if not model_config then
+      model_config = {
+        prompt = formatter.fim,
+        options = {},
+      }
+    end
+    model_config.model = model
+    logger.trace('Ollama:get_model() -> override ' .. model)
+    cb(model_config)
+    return
+  end
+
   -- TODO: This function should be better equipped to deal with a timeout/ bad response
   -- TODO: Implement caching
   local url = self.params.base_url .. self.params.ps_endpoint

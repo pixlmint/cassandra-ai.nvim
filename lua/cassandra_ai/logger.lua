@@ -104,6 +104,15 @@ function M.get_log_file()
   return state.log_file
 end
 
+--- Set the log level at runtime
+--- @param level_str string One of TRACE, DEBUG, INFO, WARN, ERROR
+function M.set_log_level(level_str)
+  local level = LEVELS[level_str:upper()]
+  if level then
+    state.log_level = level
+  end
+end
+
 --- Get available log levels
 --- @return table
 function M.get_levels()

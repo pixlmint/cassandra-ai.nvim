@@ -306,6 +306,150 @@ function M.setup()
         vim.cmd('tabnew | edit ' .. vim.fn.fnameescape(log_file))
       end,
     },
+    config = {
+      description = 'Change configuration at runtime',
+      subcommands = {
+        auto_trigger = {
+          description = 'Toggle, enable, or disable auto_trigger',
+          complete = function(arglead)
+            local options = { 'toggle', 'enable', 'disable' }
+            local matches = {}
+            for _, opt in ipairs(options) do
+              if opt:find('^' .. vim.pesc(arglead)) then
+                table.insert(matches, opt)
+              end
+            end
+            return matches
+          end,
+          execute = function(opts)
+            local conf = require('cassandra_ai.config')
+            local inline = conf:get('inline')
+            local action = opts[1]
+
+            if action == 'toggle' then
+              inline.auto_trigger = not inline.auto_trigger
+            elseif action == 'enable' then
+              inline.auto_trigger = true
+            elseif action == 'disable' then
+              inline.auto_trigger = false
+            else
+              vim.notify('Usage: :Cassy config auto_trigger toggle|enable|disable', vim.log.levels.ERROR)
+              return
+            end
+
+            vim.notify('auto_trigger: ' .. (inline.auto_trigger and 'enabled' or 'disabled'), vim.log.levels.INFO)
+          end,
+        },
+        telemetry = {
+          description = 'Toggle, enable, or disable telemetry',
+          complete = function(arglead)
+            local options = { 'toggle', 'enable', 'disable' }
+            local matches = {}
+            for _, opt in ipairs(options) do
+              if opt:find('^' .. vim.pesc(arglead)) then
+                table.insert(matches, opt)
+              end
+            end
+            return matches
+          end,
+          execute = function(opts)
+            local conf = require('cassandra_ai.config')
+            local telemetry = require('cassandra_ai.telemetry')
+            local action = opts[1]
+            local enabled
+
+            if action == 'toggle' then
+              enabled = not telemetry:is_enabled()
+            elseif action == 'enable' then
+              enabled = true
+            elseif action == 'disable' then
+              enabled = false
+            else
+              vim.notify('Usage: :Cassy config telemetry toggle|enable|disable', vim.log.levels.ERROR)
+              return
+            end
+
+            telemetry:set_enabled(enabled)
+            conf:set('collect_data', enabled)
+            vim.notify('telemetry: ' .. (enabled and 'enabled' or 'disabled'), vim.log.levels.INFO)
+          end,
+        },
+        log_level = {
+          description = 'Set the log level',
+          complete = function(arglead)
+            local levels = { 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR' }
+            local matches = {}
+            for _, level in ipairs(levels) do
+              if level:find('^' .. vim.pesc(arglead:upper())) then
+                table.insert(matches, level)
+              end
+            end
+            return matches
+          end,
+          execute = function(opts)
+            local level = opts[1]
+            if not level then
+              vim.notify('Usage: :Cassy config log_level TRACE|DEBUG|INFO|WARN|ERROR', vim.log.levels.ERROR)
+              return
+            end
+
+            local logger = require('cassandra_ai.logger')
+            local levels = logger.get_levels()
+            if not levels[level:upper()] then
+              vim.notify('Invalid log level: ' .. level .. '. Use TRACE, DEBUG, INFO, WARN, or ERROR', vim.log.levels.ERROR)
+              return
+            end
+
+            logger.set_log_level(level)
+            vim.notify('log_level: ' .. level:upper(), vim.log.levels.INFO)
+          end,
+        },
+        model = {
+          description = 'Set the Ollama model override',
+          complete = function(arglead)
+            local conf = require('cassandra_ai.config')
+            local provider = conf:get('provider')
+            local matches = { 'auto' }
+
+            if provider and provider.params and provider.params.model_configs then
+              for name, _ in pairs(provider.params.model_configs) do
+                table.insert(matches, name)
+              end
+            end
+
+            local filtered = {}
+            for _, m in ipairs(matches) do
+              if m:find('^' .. vim.pesc(arglead)) then
+                table.insert(filtered, m)
+              end
+            end
+            return filtered
+          end,
+          execute = function(opts)
+            local model_name = opts[1]
+            if not model_name then
+              vim.notify('Usage: :Cassy config model <model_name|auto>', vim.log.levels.ERROR)
+              return
+            end
+
+            local conf = require('cassandra_ai.config')
+            local provider = conf:get('provider')
+
+            if not provider or not provider.set_model_override then
+              vim.notify('Model override is only supported for the Ollama backend', vim.log.levels.ERROR)
+              return
+            end
+
+            provider:set_model_override(model_name)
+            if model_name == 'auto' then
+              vim.notify('model: automatic selection', vim.log.levels.INFO)
+            else
+              vim.notify('model: ' .. model_name, vim.log.levels.INFO)
+            end
+          end,
+        },
+      },
+    },
   }
 
   register_command("Cassy", commands)

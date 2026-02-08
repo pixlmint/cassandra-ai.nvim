@@ -128,4 +128,8 @@ function M:get(what)
   return conf[what]
 end
 
+function M:set(key, value)
+  conf[key] = value
+end
+
 return M
