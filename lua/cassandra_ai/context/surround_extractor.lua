@@ -1,6 +1,7 @@
 local M = {}
 
 local conf = require('cassandra_ai.config')
+local logger = require('cassandra_ai.logger')
 local api = vim.api
 
 M._textobjects_instance = nil
@@ -9,8 +10,10 @@ local function textobjects()
   if M._textobjects_instance == nil then
     local ok, inst = pcall(require, 'nvim-treesitter-textobjects.shared')
     if ok then
+      logger.debug('surround: loaded nvim-treesitter-textobjects')
       M._textobjects_instance = inst
     else
+      logger.error('surround: unable to load nvim-treesitter-textobjects')
       vim.notify("Unable to load textobjects", vim.log.levels.ERROR)
     end
   end
@@ -62,6 +65,7 @@ function M.simple_extractor(ctx)
   local start_line = math.max(0, line_0 - max_lines)
   local end_line = line_0 + 1 + max_lines
 
+  logger.trace(string.format('simple_extractor() -> lines %d–%d', start_line, end_line))
   return extract_lines(start_line, end_line, line_0, col, ctx.bufnr)
 end
 
@@ -100,6 +104,7 @@ local locate_comment = curry_textobjects('@comment.outer')
 --- @param ctx SurroundContext
 function M.smart_extractor(ctx)
   local current_context = ctx.current_context
+  logger.trace('smart_extractor() -> context_type=' .. tostring(current_context))
   local rng
   if current_context == 'impl' then
     rng = locate_function(ctx)
@@ -116,8 +121,10 @@ function M.smart_extractor(ctx)
     rng = { 0, 0, nil, line_count, vim.fn.strdisplaywidth(last_line), nil }
   end
   if rng == nil or #rng == 0 then
+    logger.trace('smart_extractor() -> no range, falling back to simple_extractor()')
     return M.simple_extractor(ctx)
   else
+    logger.trace(string.format('smart_extractor() -> extracting lines %d–%d', rng[1], rng[4]))
     local line_0 = ctx.cursor.line - 1
     return extract_lines(rng[1], rng[4], line_0, ctx.cursor.col, ctx.bufnr)
   end

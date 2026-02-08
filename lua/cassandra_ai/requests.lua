@@ -1,5 +1,6 @@
 local job = require('plenary.job')
 local conf = require('cassandra_ai.config')
+local logger = require('cassandra_ai.logger')
 Service = {}
 
 function Service:new(o)
@@ -63,6 +64,8 @@ function Service:_Request(url, headers, data, cb, args)
 
   args[#args + 1] = url
 
+  logger.trace('Service:_Request() -> ' .. url)
+
   local j = job:new({
     command = 'curl',
     args = args,
@@ -71,6 +74,7 @@ function Service:_Request(url, headers, data, cb, args)
         os.remove(tmpfname)
       end
       if exit_code ~= 0 then
+        logger.error('HTTP request failed: ' .. url .. ' exit_code=' .. exit_code)
         if conf:get('log_errors') then
           vim.notify('An Error Occurred ...', vim.log.levels.ERROR)
         end
@@ -84,8 +88,10 @@ function Service:_Request(url, headers, data, cb, args)
         data = { response = json }
       })
       if json == nil then
+        logger.warn('HTTP response: no valid JSON from ' .. url)
         cb({ { error = 'No Response.' } })
       else
+        logger.trace('Service:_Request() -> response ok from ' .. url)
         cb(json)
       end
     end),

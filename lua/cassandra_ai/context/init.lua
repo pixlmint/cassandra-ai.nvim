@@ -1,6 +1,7 @@
 --- Context Provider Manager
 --- Orchestrates multiple context providers and merges their results
 local async = require('plenary.async')
+local logger = require('cassandra_ai.logger')
 
 local M = {}
 
@@ -66,6 +67,7 @@ function M.register_provider(provider_config)
     -- Built-in provider - load by name
     local status, ContextProvider = pcall(require, 'cassandra_ai.context.' .. provider_config.name)
     if not status then
+      logger.warn('context: failed to load provider "' .. provider_config.name .. '": ' .. tostring(ContextProvider))
       vim.notify(
         'cassandra-ai: Failed to load context provider "' .. provider_config.name .. '": ' .. ContextProvider,
         vim.log.levels.WARN
@@ -77,14 +79,18 @@ function M.register_provider(provider_config)
 
   -- Check if provider is available
   if provider_instance:is_available() then
+    local name = provider_config.name or provider_instance:get_name()
+    logger.debug('context: registered provider "' .. name .. '" (priority=' .. (provider_config.priority or 10) .. ')')
     table.insert(registered_providers, {
       instance = provider_instance,
       priority = provider_config.priority or 10,
-      name = provider_config.name or provider_instance:get_name(),
+      name = name,
     })
   else
+    local name = provider_config.name or 'custom'
+    logger.debug('context: provider "' .. name .. '" not available in this environment')
     vim.notify(
-      'cassandra-ai: Context provider "' .. (provider_config.name or 'custom') .. '" is not available in this environment',
+      'cassandra-ai: Context provider "' .. name .. '" is not available in this environment',
       vim.log.levels.DEBUG
     )
   end
@@ -170,10 +176,13 @@ function M.gather_context(params, callback)
     end
   end
 
+  logger.trace('context.gather_context() -> ' .. total .. ' provider(s)')
+
   -- Set timeout
   timeout_timer = vim.fn.timer_start(config.timeout_ms, function()
     if not timed_out then
       timed_out = true
+      logger.warn('context: timed out after ' .. config.timeout_ms .. 'ms (' .. completed .. '/' .. total .. ' completed)')
       -- Call callback with whatever we have
       local merged = merge_contexts(results)
       callback(merged)
@@ -188,6 +197,7 @@ function M.gather_context(params, callback)
     end)
 
     if not success then
+      logger.error('context: error in provider "' .. provider_data.name .. '": ' .. tostring(err))
       vim.notify(
         'cassandra-ai: Error in context provider "' .. provider_data.name .. '": ' .. tostring(err),
         vim.log.levels.WARN

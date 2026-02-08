@@ -1,4 +1,5 @@
 local conf = require('cassandra_ai.config')
+local logger = require('cassandra_ai.logger')
 
 local M = {}
 
@@ -144,8 +145,11 @@ function M.trigger()
 
   local service = conf:get('provider')
   if service == nil then
+    logger.warn('trigger: no provider configured')
     return
   end
+
+  logger.info('trigger: generation=' .. my_gen .. ' buf=' .. bufnr .. ' ft=' .. ft)
 
   local function do_complete(surround_context)
     if my_gen ~= generation then return end
@@ -177,25 +181,30 @@ function M.trigger()
     })
 
     local function on_complete(data)
+      local elapsed_ms = (os.clock() - start_time) * 1000
       if telemetry:is_enabled() then
         telemetry:log_response(request_id, {
           response_raw = data,
-          response_time_ms = (os.clock() - start_time) * 1000
+          response_time_ms = elapsed_ms,
         })
       end
       -- Stale check
       if my_gen ~= generation then
+        logger.trace('on_complete() -> discarding: stale generation')
         return
       end
       if not vim.api.nvim_buf_is_valid(bufnr) then
+        logger.trace('on_complete() -> discarding: buffer invalid')
         return
       end
       if vim.fn.mode() ~= 'i' then
+        logger.trace('on_complete() -> discarding: left insert mode')
         return
       end
       -- Check cursor hasn't moved
       local cur = vim.api.nvim_win_get_cursor(0)
       if cur[1] ~= cursor_pos[1] or cur[2] ~= cursor_pos[2] then
+        logger.trace('on_complete() -> discarding: cursor moved')
         return
       end
 
@@ -204,9 +213,11 @@ function M.trigger()
       })
 
       if not data or #data == 0 then
+        logger.trace('on_complete() -> no completions returned')
         return
       end
 
+      logger.info(string.format('completion received: %d item(s) in %.0fms', #data, elapsed_ms))
       completions = data
       current_index = 1
       render_ghost_text(completions[current_index])
@@ -300,6 +311,7 @@ function M.next()
     return
   end
   current_index = current_index % #completions + 1
+  logger.info('next completion: ' .. current_index .. '/' .. #completions)
   render_ghost_text(completions[current_index])
 end
 
@@ -308,6 +320,7 @@ function M.prev()
     return
   end
   current_index = (current_index - 2) % #completions + 1
+  logger.info('prev completion: ' .. current_index .. '/' .. #completions)
   render_ghost_text(completions[current_index])
 end
 
@@ -320,6 +333,8 @@ function M.accept()
   if not text or text == '' then
     return false
   end
+
+  logger.info('completion accepted (' .. #vim.split(text, '\n', { plain = true }) .. ' lines)')
 
   local row = cursor_pos[1] -- 1-indexed
   local col = cursor_pos[2] -- 0-indexed bytes

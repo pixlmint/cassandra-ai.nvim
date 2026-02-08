@@ -302,6 +302,27 @@ function M.setup()
     desc = 'Show merged context from all enabled context providers',
   })
 
+  -- Create CassandraAiLog command to open the log file
+  vim.api.nvim_create_user_command('CassandraAiLog', function()
+    local logger = require('cassandra_ai.logger')
+    local log_file = logger.get_log_file()
+
+    if not log_file then
+      vim.notify('No log file configured', vim.log.levels.WARN)
+      return
+    end
+
+    if vim.fn.filereadable(log_file) == 0 then
+      vim.notify('Log file does not exist yet: ' .. log_file, vim.log.levels.INFO)
+      return
+    end
+
+    vim.cmd('tabnew | edit ' .. vim.fn.fnameescape(log_file))
+  end, {
+    nargs = 0,
+    desc = 'Open the cassandra-ai log file',
+  })
+
   -- Create CassandraAiContextList command to list available providers
   vim.api.nvim_create_user_command('CassandraAiContextList', function()
     local context_manager = require('cassandra_ai.context')

@@ -1,5 +1,6 @@
 local requests = require('cassandra_ai.requests')
 local formatter = require('cassandra_ai.prompt_formatters').formatters
+local logger = require('cassandra_ai.logger')
 
 Ollama = requests:new(nil)
 
@@ -42,6 +43,7 @@ function Ollama:get_model(cb)
   -- TODO: This function should be better equipped to deal with a timeout/ bad response
   -- TODO: Implement caching
   local url = self.params.base_url .. self.params.ps_endpoint
+  logger.trace('Ollama:get_model()')
   self:Get(url, self.params.headers, nil, function(data)
     if type(data) == 'table' and data['models'] ~= nil then
       local viable_models = {}
@@ -62,9 +64,12 @@ function Ollama:get_model(cb)
       else
         model_to_use = viable_models[1]
       end
+      logger.trace('Ollama:get_model() -> selected ' .. model_to_use)
       local model_config = self.params.model_configs[model_to_use]
       model_config.model = model_to_use
       cb(model_config)
+    else
+      logger.warn('ollama: /api/ps returned unexpected data')
     end
   end)
 end
@@ -79,9 +84,11 @@ function Ollama:complete(prompt, cb, model_config)
 
   data = vim.tbl_deep_extend('force', data, prompt)
 
+  logger.trace('Ollama:complete() -> model=' .. model_config.model)
   return self:Post(self.params.base_url .. self.params.generate_endpoint, self.params.headers, data, function(answer)
     local new_data = {}
     if answer.error ~= nil then
+      logger.error('ollama: API error — ' .. answer.error)
       vim.notify('Ollama error: ' .. answer.error, vim.log.levels.ERROR)
       return
     end
@@ -93,6 +100,7 @@ function Ollama:complete(prompt, cb, model_config)
       elseif answer.response ~= nil then
         result_content = answer.response
       else
+        logger.error('ollama: unexpected response format: ' .. vim.fn.json_encode(answer))
         vim.notify('Unable to get result from ollama response: ' .. vim.fn.json_encode(answer), vim.log.levels.ERROR)
         return
       end
