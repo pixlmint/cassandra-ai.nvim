@@ -50,9 +50,6 @@ end
 --- @param level number
 --- @param msg string
 local function write(level, msg)
-  if not state.initialized or level < state.log_level then
-    return
-  end
   local path = ensure_log_file()
   if not path then
     return
@@ -67,25 +64,31 @@ local function write(level, msg)
   end
 end
 
-function M.trace(msg)
-  write(LEVELS.TRACE, msg)
+
+local function create_log_function(level, notify_level)
+  return function(msg)
+    if not state.initialized or level < state.log_level then
+      return
+    end
+    if notify_level ~= nil then
+      vim.notify(msg, notify_level)
+    end
+    if level == LEVELS.TRACE then
+      print(msg)
+    end
+    write(level, msg)
+  end
 end
 
-function M.debug(msg)
-  write(LEVELS.DEBUG, msg)
-end
+M.trace = create_log_function(LEVELS.TRACE)
 
-function M.info(msg)
-  write(LEVELS.INFO, msg)
-end
+M.debug = create_log_function(LEVELS.DEBUG, vim.log.levels.DEBUG)
 
-function M.warn(msg)
-  write(LEVELS.WARN, msg)
-end
+M.info = create_log_function(LEVELS.INFO, vim.log.levels.INFO)
 
-function M.error(msg)
-  write(LEVELS.ERROR, msg)
-end
+M.warn = create_log_function(LEVELS.WARN, vim.log.levels.WARN)
+
+M.error = create_log_function(LEVELS.ERROR, vim.log.levels.ERROR)
 
 --- Format and log a message with string.format
 --- @param level string 'debug'|'info'|'warn'|'error'

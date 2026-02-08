@@ -82,24 +82,22 @@ function M:setup(params)
 
   -- Only reinitialize if the provider changed or if it's not initialized yet
   if type(conf.provider) == 'string' or (old_provider_name and old_provider_name ~= new_provider_name) then
-    local provider_name = type(conf.provider) == 'string' and conf.provider or conf.provider.name
-    if provider_name:lower() ~= 'ollama' then
+    local provider_name = type(conf.provider) == 'string' and conf.provider:lower() or conf.provider.name:lower()
+    if provider_name ~= 'ollama' then
       vim.notify_once("Going forward, " .. provider_name .. " is no longer maintained by pixlmint/cassandra-ai. Pin your plugin to tag `v1`, or fork the repo to handle maintenance yourself.", vim.log.levels.WARN)
     end
-    logger.trace('config:setup() -> loading backend: ' .. provider_name:lower())
-    local status, provider = pcall(require, 'cassandra_ai.backends.' .. provider_name:lower())
+    logger.trace('config:setup() -> loading backend: ' .. provider_name)
+    local status, provider = pcall(require, 'cassandra_ai.backends.' .. provider_name)
     if status then
       conf.provider = provider:new(conf.provider_options)
       conf.provider.name = provider_name
       logger.debug('provider loaded: ' .. provider_name)
 
-      if old_provider_name and old_provider_name ~= provider_name then
+      if old_provider_name and old_provider_name:lower() ~= provider_name then
         logger.info('switched provider from ' .. old_provider_name .. ' to ' .. provider_name)
-        vim.notify('Switched provider from ' .. old_provider_name .. ' to ' .. provider_name, vim.log.levels.INFO)
       end
     else
       logger.error('failed to load provider: ' .. provider_name .. ' — ' .. tostring(provider))
-      vim.notify('Bad provider in config: ' .. provider_name, vim.log.levels.ERROR)
     end
   end
 
