@@ -6,7 +6,7 @@ local logger = require('cassandra_ai.logger')
 
 local LspContextProvider = BaseContextProvider:new()
 
-local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
+local get_clients = vim.lsp.get_clients
 
 -- ---------------------------------------------------------------------------
 -- Identifier extraction helpers

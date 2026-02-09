@@ -158,11 +158,7 @@ end
 
 -- Helper to get lsp clients (works with newer and older nvim versions)
 function M.get_lsp_clients(bufnr)
-  if vim.lsp.get_clients then
-    return vim.lsp.get_clients({ bufnr = bufnr })
-  else
-    return vim.lsp.get_active_clients({ bufnr = bufnr })
-  end
+  return vim.lsp.get_clients({ bufnr = bufnr })
 end
 
 -- Check if any LSP client supports a specific method for the buffer

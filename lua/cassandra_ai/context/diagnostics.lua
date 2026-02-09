@@ -111,7 +111,7 @@ local function get_symbols(bufnr, cursor_pos, opts)
     return ''
   end
 
-  local clients = vim.lsp.get_active_clients({ bufnr = bufnr })
+  local clients = vim.lsp.get_clients({ bufnr = bufnr })
   if #clients == 0 then
     return ''
   end
@@ -136,7 +136,7 @@ local function get_hover_async(bufnr, cursor_pos, opts, callback)
     return
   end
 
-  local clients = vim.lsp.get_active_clients({ bufnr = bufnr })
+  local clients = vim.lsp.get_clients({ bufnr = bufnr })
   if #clients == 0 then
     callback('')
     return
