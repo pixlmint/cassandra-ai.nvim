@@ -7,7 +7,7 @@ local conf = {
   --    lines: Just grab a preset maximum number of lines (defined by max_lines)
   --    smart: For example when writing a function, only include the
   --           function body and doc comment
-  surround_extractor_strategy = 'lines',   -- lines | smart
+  surround_extractor_strategy = 'lines', -- lines | smart
   -- List of additional context providers
   -- Builtin options:
   --    - diagnostics: Show LSP diagnostics in the current file

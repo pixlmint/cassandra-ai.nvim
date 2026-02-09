@@ -88,7 +88,9 @@ local function get_diagnostics(bufnr, cursor_line, opts)
 
   local formatted = {}
   for i, diag in ipairs(diagnostics) do
-    if i > opts.max_diagnostics then break end
+    if i > opts.max_diagnostics then
+      break
+    end
     table.insert(formatted, format_diagnostic(diag))
   end
 

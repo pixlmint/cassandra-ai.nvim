@@ -42,12 +42,16 @@ end
 --- @param bufnr number Buffer number
 --- @return string Node text content
 local function get_node_text(node, bufnr)
-  if not node then return '' end
+  if not node then
+    return ''
+  end
 
   local start_row, start_col, end_row, end_col = node:range()
   local lines = vim.api.nvim_buf_get_lines(bufnr, start_row, end_row + 1, false)
 
-  if #lines == 0 then return '' end
+  if #lines == 0 then
+    return ''
+  end
 
   -- Handle single line
   if #lines == 1 then
@@ -107,7 +111,9 @@ end
 --- @param opts table Provider options
 --- @return string Context information
 local function extract_node_context(node, bufnr, cursor_pos, opts)
-  if not node then return '' end
+  if not node then
+    return ''
+  end
 
   local context_parts = {}
   local node_type = node:type()
@@ -177,4 +183,3 @@ function TreesitterContextProvider:get_context_sync(params)
 end
 
 return TreesitterContextProvider
-

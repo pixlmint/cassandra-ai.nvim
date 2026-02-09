@@ -22,8 +22,7 @@ end
 --- @param bufnr number
 --- @param pos table cursor position
 --- @return string Extracted signature
-function M.extract_signature(bufnr, pos)
-end
+function M.extract_signature(bufnr, pos) end
 
 --- Extract class context including methods
 --- @param bufnr number Buffer number
@@ -38,7 +37,9 @@ function M.extract_class_context(bufnr, lines, start_line, end_line, include_pri
   -- Get class declaration
   local class_start = math.max(0, start_line - 10)
   for i = class_start + 1, start_line + 1 do
-    if i > #lines then break end
+    if i > #lines then
+      break
+    end
     local line = lines[i]
 
     if line:match('^%s*//%s') or line:match('^%s*/%*') or line:match('^%s*%*') or line:match('^%s*#') then
@@ -55,9 +56,7 @@ function M.extract_class_context(bufnr, lines, start_line, end_line, include_pri
   for i = start_line + 1, math.min(end_line + 1, #lines) do
     local line = lines[i]
 
-    if line:match('function%s+') or line:match('def%s+') or
-        line:match('public%s+function') or line:match('protected%s+function') or
-        line:match('private%s+function') then
+    if line:match('function%s+') or line:match('def%s+') or line:match('public%s+function') or line:match('protected%s+function') or line:match('private%s+function') then
       if include_private or not M.is_private(line) then
         local sig_start = math.max(start_line, i - 6)
         local signature = M.extract_signature(lines, sig_start, i - 1)

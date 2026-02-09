@@ -173,10 +173,7 @@ function Telemetry:flush()
       if exit_code ~= 0 then
         local cassandra_ai_config = require('cassandra_ai.config')
         if cassandra_ai_config and cassandra_ai_config:get('log_errors') then
-          vim.notify(
-            string.format('cassandra-ai: Failed to write data log (exit code %d)', exit_code),
-            vim.log.levels.WARN
-          )
+          vim.notify(string.format('cassandra-ai: Failed to write data log (exit code %d)', exit_code), vim.log.levels.WARN)
         end
       end
     end,

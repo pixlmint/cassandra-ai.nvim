@@ -37,7 +37,7 @@ Your answer should be:
 ]=]
 
   if additional_context and additional_context ~= '' then
-    system = system .. "\nAdditional Context for the current code section (use this to provider better informed completions):\n" .. additional_context
+    system = system .. '\nAdditional Context for the current code section (use this to provider better informed completions):\n' .. additional_context
   end
 
   local messages = {}

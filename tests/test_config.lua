@@ -267,4 +267,3 @@ T['Config']['setup() handles boolean flags correctly'] = function()
 end
 
 return T
-

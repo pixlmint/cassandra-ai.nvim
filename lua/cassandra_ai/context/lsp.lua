@@ -51,7 +51,9 @@ local skip_names_by_ft = {
 }
 
 local function should_skip_name(text, bufnr)
-  if skip_names_common[text] then return true end
+  if skip_names_common[text] then
+    return true
+  end
   local ft = vim.bo[bufnr or 0].filetype
   local ft_skips = skip_names_by_ft[ft]
   return ft_skips ~= nil and ft_skips[text] == true
@@ -59,13 +61,19 @@ end
 
 --- Walk treesitter tree and collect unique identifiers in the given line range (1-indexed)
 local function get_identifiers_in_range(bufnr, start_line, end_line)
-  if not vim.treesitter or not vim.treesitter.get_parser then return {} end
+  if not vim.treesitter or not vim.treesitter.get_parser then
+    return {}
+  end
 
   local ok, parser = pcall(vim.treesitter.get_parser, bufnr)
-  if not ok or not parser then return {} end
+  if not ok or not parser then
+    return {}
+  end
 
   local trees = parser:parse()
-  if not trees or not trees[1] then return {} end
+  if not trees or not trees[1] then
+    return {}
+  end
 
   local identifiers = {}
   local seen = {}
@@ -75,8 +83,12 @@ local function get_identifiers_in_range(bufnr, start_line, end_line)
 
     local function visit(node)
       local sr, sc, er, _ = node:range()
-      if sr > end_line - 1 then return end
-      if er < start_line - 1 then return end
+      if sr > end_line - 1 then
+        return
+      end
+      if er < start_line - 1 then
+        return
+      end
 
       local node_type = node:type()
       if identifier_types[node_type] then
@@ -129,7 +141,9 @@ local function make_position_params(bufnr, line, col)
       end
       return col
     end)
-    if conv_ok and result then character = result end
+    if conv_ok and result then
+      character = result
+    end
   end
 
   return {
@@ -140,7 +154,9 @@ end
 
 local function try_lsp_method(bufnr, method, params, timeout_ms)
   local results = vim.lsp.buf_request_sync(bufnr, method, params, timeout_ms)
-  if not results then return nil end
+  if not results then
+    return nil
+  end
 
   for _, res in pairs(results) do
     if res.result then
@@ -162,7 +178,9 @@ local function lsp_get_definition(bufnr, line, col, timeout_ms)
   timeout_ms = timeout_ms or 2000
 
   local clients = get_clients({ bufnr = bufnr })
-  if #clients == 0 then return nil end
+  if #clients == 0 then
+    return nil
+  end
 
   local params = make_position_params(bufnr, line, col)
 
@@ -174,7 +192,9 @@ local function lsp_get_definition(bufnr, line, col, timeout_ms)
 
   for _, method in ipairs(methods) do
     local result = try_lsp_method(bufnr, method, params, timeout_ms)
-    if result then return result end
+    if result then
+      return result
+    end
   end
 
   return nil
@@ -183,7 +203,9 @@ end
 local function location_to_info(location)
   local uri = location.uri or location.targetUri
   local range = location.range or location.targetSelectionRange or location.targetRange
-  if not uri or not range then return nil end
+  if not uri or not range then
+    return nil
+  end
 
   local filepath = vim.uri_to_fname(uri)
   local start_line = (range.start and range.start.line or 0) + 1
@@ -266,7 +288,9 @@ local function read_definition_code(filepath, start_line, max_lines)
   max_lines = max_lines or 50
 
   local ok, lines = pcall(vim.fn.readfile, filepath)
-  if not ok or not lines then return nil, nil end
+  if not ok or not lines then
+    return nil, nil
+  end
 
   -- Fallback: return raw lines
   local function fallback()
@@ -278,17 +302,25 @@ local function read_definition_code(filepath, start_line, max_lines)
     return table.concat(code_lines, '\n'), end_line
   end
 
-  if not vim.treesitter then return fallback() end
+  if not vim.treesitter then
+    return fallback()
+  end
 
   local ft = vim.filetype.match({ filename = filepath })
-  if not ft then return fallback() end
+  if not ft then
+    return fallback()
+  end
 
   local content = table.concat(lines, '\n')
   local parser_ok, parser = pcall(vim.treesitter.get_string_parser, content, ft)
-  if not parser_ok or not parser then return fallback() end
+  if not parser_ok or not parser then
+    return fallback()
+  end
 
   local trees = parser:parse()
-  if not trees or not trees[1] then return fallback() end
+  if not trees or not trees[1] then
+    return fallback()
+  end
 
   local root = trees[1]:root()
   local target_row = start_line - 1
@@ -298,9 +330,13 @@ local function read_definition_code(filepath, start_line, max_lines)
     if container_types[node:type()] then
       local sr, _, er, ec = node:range()
       local actual_end = er + 1
-      if ec == 0 and er > sr then actual_end = er end
+      if ec == 0 and er > sr then
+        actual_end = er
+      end
       -- Clamp to max_lines
-      if actual_end - sr > max_lines then actual_end = sr + max_lines end
+      if actual_end - sr > max_lines then
+        actual_end = sr + max_lines
+      end
       local code_lines = {}
       for i = sr + 1, actual_end do
         table.insert(code_lines, lines[i])
@@ -389,7 +425,9 @@ function LspContextProvider:get_context(params, callback)
   local seen_locations = {}
 
   for _, ident in ipairs(identifiers) do
-    if #definitions >= self.opts.max_definitions then break end
+    if #definitions >= self.opts.max_definitions then
+      break
+    end
 
     local location = lsp_get_definition(bufnr, ident.line, ident.col, self.opts.timeout_ms)
     if location then
@@ -403,8 +441,7 @@ function LspContextProvider:get_context(params, callback)
           local same_file = info.filepath == current_filepath
           local in_visible_range = info.start_line >= visible_start and info.start_line <= visible_end
           if not (same_file and in_visible_range) then
-            local code, actual_end = read_definition_code(info.filepath, info.start_line,
-              self.opts.max_lines_per_definition)
+            local code, actual_end = read_definition_code(info.filepath, info.start_line, self.opts.max_lines_per_definition)
             if code and code ~= '' then
               table.insert(definitions, {
                 name = ident.name,

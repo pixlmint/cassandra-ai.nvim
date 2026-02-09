@@ -64,7 +64,6 @@ local function write(level, msg)
   end
 end
 
-
 local function create_log_function(level, notify_level)
   return function(msg)
     if not state.initialized or level < state.log_level then

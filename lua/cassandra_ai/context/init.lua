@@ -34,7 +34,7 @@ function M.setup(user_config)
       })
     elseif type(provider_config) == 'table' then
       -- Table format: full configuration
-      if provider_config.enabled ~= false then  -- Register unless explicitly disabled
+      if provider_config.enabled ~= false then -- Register unless explicitly disabled
         M.register_provider(provider_config)
       end
     end
@@ -58,7 +58,9 @@ function M.register_provider(provider_config)
       provider_instance.get_context = function(self, params, callback)
         provider_config.provider(params.bufnr, params.cursor_pos, callback)
       end
-      provider_instance.get_name = function() return provider_config.name or 'custom' end
+      provider_instance.get_name = function()
+        return provider_config.name or 'custom'
+      end
     else
       -- Already a provider instance
       provider_instance = provider_config.provider
@@ -68,10 +70,7 @@ function M.register_provider(provider_config)
     local status, ContextProvider = pcall(require, 'cassandra_ai.context.' .. provider_config.name)
     if not status then
       logger.warn('context: failed to load provider "' .. provider_config.name .. '": ' .. tostring(ContextProvider))
-      vim.notify(
-        'cassandra-ai: Failed to load context provider "' .. provider_config.name .. '": ' .. ContextProvider,
-        vim.log.levels.WARN
-      )
+      vim.notify('cassandra-ai: Failed to load context provider "' .. provider_config.name .. '": ' .. ContextProvider, vim.log.levels.WARN)
       return
     end
     provider_instance = ContextProvider:new(provider_config.opts or {})
@@ -89,10 +88,7 @@ function M.register_provider(provider_config)
   else
     local name = provider_config.name or 'custom'
     logger.debug('context: provider "' .. name .. '" not available in this environment')
-    vim.notify(
-      'cassandra-ai: Context provider "' .. name .. '" is not available in this environment',
-      vim.log.levels.DEBUG
-    )
+    vim.notify('cassandra-ai: Context provider "' .. name .. '" is not available in this environment', vim.log.levels.DEBUG)
   end
 end
 
@@ -130,7 +126,6 @@ local function merge_contexts(contexts)
   end
 end
 
-
 --- @class ContextParameterParams
 --- @field bufnr number
 --- @field cursor_pos table
@@ -152,7 +147,9 @@ function M.gather_context(params, callback)
   -- Callback wrapper to collect results
   local function collect_result(provider_name, priority)
     return function(result)
-      if timed_out then return end
+      if timed_out then
+        return
+      end
 
       completed = completed + 1
 
@@ -198,10 +195,7 @@ function M.gather_context(params, callback)
 
     if not success then
       logger.error('context: error in provider "' .. provider_data.name .. '": ' .. tostring(err))
-      vim.notify(
-        'cassandra-ai: Error in context provider "' .. provider_data.name .. '": ' .. tostring(err),
-        vim.log.levels.WARN
-      )
+      vim.notify('cassandra-ai: Error in context provider "' .. provider_data.name .. '": ' .. tostring(err), vim.log.levels.WARN)
       -- Count as completed to avoid hanging
       completed = completed + 1
     end

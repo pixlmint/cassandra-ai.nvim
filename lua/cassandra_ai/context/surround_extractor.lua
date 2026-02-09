@@ -14,13 +14,12 @@ local function textobjects()
       M._textobjects_instance = inst
     else
       logger.error('surround: unable to load nvim-treesitter-textobjects')
-      vim.notify("Unable to load textobjects", vim.log.levels.ERROR)
+      vim.notify('Unable to load textobjects', vim.log.levels.ERROR)
     end
   end
 
   return M._textobjects_instance
 end
-
 
 --- Extract lines before and after cursor position
 --- @param start_line number 0-indexed start line
@@ -48,7 +47,6 @@ local function extract_lines(start_line, end_line, line_0, col, buf)
     lines_after = table.concat(lines_after, '\n'),
   }
 end
-
 
 --- @class SurroundContext
 --- @field cursor {line: number, col: number} cursor position (1-indexed line, 0-indexed byte col) as from nvim_win_get_cursor
@@ -109,11 +107,11 @@ function M.smart_extractor(ctx)
   if current_context == 'impl' then
     rng = locate_function(ctx)
     -- Look for comment above the function; rng[1] is 0-indexed, convert to 1-indexed for ctx
-    rng = combine_ranges(rng, locate_comment({ bufnr = ctx.bufnr, cursor = { line = rng[1], col = rng[2] }}))
+    rng = combine_ranges(rng, locate_comment({ bufnr = ctx.bufnr, cursor = { line = rng[1], col = rng[2] } }))
   elseif current_context == 'comment_func' then
     rng = locate_comment(ctx)
     -- Look for function below the comment; rng[4] is 0-indexed end row
-    rng = combine_ranges(rng, locate_function({ bufnr = ctx.bufnr, cursor = { line = rng[4] + 3, col = rng[2] }}))
+    rng = combine_ranges(rng, locate_function({ bufnr = ctx.bufnr, cursor = { line = rng[4] + 3, col = rng[2] } }))
   elseif current_context == 'init' then
     local line_count = api.nvim_buf_line_count(ctx.bufnr)
     local last_line_list = api.nvim_buf_get_lines(ctx.bufnr, line_count - 1, line_count, false)

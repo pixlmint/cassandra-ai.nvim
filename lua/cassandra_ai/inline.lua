@@ -16,7 +16,6 @@ local internal_move = false
 
 local ns = vim.api.nvim_create_namespace('cassandra_ai_inline')
 
-
 -- ---------------------------------------------------------------------------
 -- Request Logging
 -- ---------------------------------------------------------------------------
@@ -105,7 +104,9 @@ end
 
 local function cancel_request()
   if current_job then
-    pcall(function() current_job:shutdown() end)
+    pcall(function()
+      current_job:shutdown()
+    end)
     current_job = nil
   end
 end
@@ -124,7 +125,9 @@ end
 --- Some models echo back parts of the before/after text in their response.
 local function strip_context_overlap(text, lines_before, lines_after)
   local lines = vim.split(text, '\n', { plain = true })
-  if #lines == 0 then return text end
+  if #lines == 0 then
+    return text
+  end
 
   local before_split = vim.split(lines_before, '\n', { plain = true })
   local after_split = vim.split(lines_after, '\n', { plain = true })
@@ -244,7 +247,9 @@ function M.trigger()
   logger.info('trigger: generation=' .. my_gen .. ' buf=' .. bufnr .. ' ft=' .. ft)
 
   local function do_complete(surround_context)
-    if my_gen ~= generation then return end
+    if my_gen ~= generation then
+      return
+    end
 
     local before = surround_context.lines_before
     local after = surround_context.lines_after
@@ -338,13 +343,17 @@ function M.trigger()
     local formatters = require('cassandra_ai.prompt_formatters')
 
     service:resolve_model(function(model_info)
-      if my_gen ~= generation then return end
+      if my_gen ~= generation then
+        return
+      end
 
       local fmt = (model_info and model_info.formatter) or conf:get('formatter') or formatters.fim
       local supports_context = (fmt == formatters.chat)
 
       local function do_request(additional_context)
-        if my_gen ~= generation then return end
+        if my_gen ~= generation then
+          return
+        end
         start_time = os.clock()
         local prompt_data = fmt(before, after, { filetype = ft }, additional_context)
         current_job = service:complete(prompt_data, on_complete, model_info or {})
@@ -376,7 +385,9 @@ function M.trigger()
   local strategy = conf:get('surround_extractor_strategy')
   if strategy == 'smart' then
     require('cassandra_ai.context.utils').detect_suggestion_context(bufnr, cursor_pos, function(current_context)
-      if my_gen ~= generation then return end
+      if my_gen ~= generation then
+        return
+      end
       ctx.current_context = current_context
       do_complete(surround_extractor.smart_extractor(ctx))
     end)
@@ -492,9 +503,13 @@ local function debounced_trigger()
   if not debounce_timer then
     debounce_timer = vim.uv.new_timer()
   end
-  debounce_timer:start(ic.debounce_ms, 0, vim.schedule_wrap(function()
-    M.trigger()
-  end))
+  debounce_timer:start(
+    ic.debounce_ms,
+    0,
+    vim.schedule_wrap(function()
+      M.trigger()
+    end)
+  )
 end
 
 -- ---------------------------------------------------------------------------
@@ -507,7 +522,9 @@ local function setup_autocmds()
   vim.api.nvim_create_autocmd('CursorMovedI', {
     group = group,
     callback = function()
-      if internal_move then return end
+      if internal_move then
+        return
+      end
       if is_visible and cursor_pos then
         local cur = vim.api.nvim_win_get_cursor(0)
         if cur[1] ~= cursor_pos[1] or cur[2] ~= cursor_pos[2] then
@@ -521,7 +538,9 @@ local function setup_autocmds()
   vim.api.nvim_create_autocmd('InsertEnter', {
     group = group,
     callback = function()
-      if internal_move then return end
+      if internal_move then
+        return
+      end
       debounced_trigger()
     end,
   })

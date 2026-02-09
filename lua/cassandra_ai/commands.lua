@@ -6,7 +6,7 @@ local M = {}
 --- @return function Autocompletion function compatible with nvim_create_user_command
 function create_completer(commands)
   return function(arglead, cmdline, _)
-    local words = vim.split(cmdline, " ")
+    local words = vim.split(cmdline, ' ')
     local current = commands
     local last_word = words[#words - 1]
 
@@ -25,10 +25,10 @@ function create_completer(commands)
     end
 
     -- Handle options completion (flags starting with -)
-    if current[last_word] and current[last_word].options and words[#words]:sub(1, 1) == "-" then
+    if current[last_word] and current[last_word].options and words[#words]:sub(1, 1) == '-' then
       local matches = {}
       for opt, _ in pairs(current[last_word].options) do
-        if opt:find("^" .. vim.pesc(words[#words])) then
+        if opt:find('^' .. vim.pesc(words[#words])) then
           table.insert(matches, opt)
         end
       end
@@ -43,7 +43,7 @@ function create_completer(commands)
     -- Complete available commands at this level
     local matches = {}
     for cmd in pairs(current) do
-      if cmd:find("^" .. vim.pesc(arglead)) then
+      if cmd:find('^' .. vim.pesc(arglead)) then
         table.insert(matches, cmd)
       end
     end
@@ -69,12 +69,12 @@ function create_dispatcher(commands)
         current[args[i]].execute(vim.list_slice(args, i + 1))
         return
       else
-        vim.notify("Unknown command: " .. args[i], vim.log.levels.ERROR)
+        vim.notify('Unknown command: ' .. args[i], vim.log.levels.ERROR)
         return
       end
     end
 
-    vim.notify("Incomplete command. Please specify a subcommand.", vim.log.levels.WARN)
+    vim.notify('Incomplete command. Please specify a subcommand.', vim.log.levels.WARN)
   end
 end
 
@@ -88,13 +88,17 @@ local function register_command(name, commands, opts)
   local dispatcher = create_dispatcher(commands)
   local completer = create_completer(commands)
 
-  vim.api.nvim_create_user_command(name, function(cmd_opts)
-    local args = vim.split(cmd_opts.args, " ", { trimempty = true })
-    dispatcher(args)
-  end, vim.tbl_extend("force", {
-    nargs = "*",
-    complete = completer,
-  }, opts))
+  vim.api.nvim_create_user_command(
+    name,
+    function(cmd_opts)
+      local args = vim.split(cmd_opts.args, ' ', { trimempty = true })
+      dispatcher(args)
+    end,
+    vim.tbl_extend('force', {
+      nargs = '*',
+      complete = completer,
+    }, opts)
+  )
 end
 
 --- Show context from a specific provider in a popup
@@ -103,9 +107,7 @@ local function show_context(provider_name)
   local context_manager = require('cassandra_ai.context')
 
   if not context_manager.is_enabled() then
-    vim.notify(
-      'Context providers are not configured. Add providers to context_providers.providers in your config.\nExample: context_providers = { providers = {\'lsp\', \'treesitter\'} }',
-      vim.log.levels.WARN)
+    vim.notify("Context providers are not configured. Add providers to context_providers.providers in your config.\nExample: context_providers = { providers = {'lsp', 'treesitter'} }", vim.log.levels.WARN)
     return
   end
 
@@ -157,14 +159,7 @@ local function show_context(provider_name)
       table.insert(available, p.name)
     end
 
-    vim.notify(
-      string.format(
-        'Provider "%s" not found or not enabled.\nAvailable providers: %s',
-        provider_name,
-        table.concat(available, ', ')
-      ),
-      vim.log.levels.ERROR
-    )
+    vim.notify(string.format('Provider "%s" not found or not enabled.\nAvailable providers: %s', provider_name, table.concat(available, ', ')), vim.log.levels.ERROR)
     return
   end
 
@@ -452,7 +447,7 @@ function M.setup()
     },
   }
 
-  register_command("Cassy", commands)
+  register_command('Cassy', commands)
 end
 
 return M

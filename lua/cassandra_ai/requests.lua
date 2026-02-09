@@ -45,7 +45,7 @@ function Service:_Request(url, headers, data, cb, args)
     args[#args + 1] = '-d'
     args[#args + 1] = '@' .. tmpfname
   elseif type(data) == 'string' then
-    args[#args + 1] = "--json"
+    args[#args + 1] = '--json'
     args[#args + 1] = data
   end
 
@@ -85,7 +85,7 @@ function Service:_Request(url, headers, data, cb, args)
       local json = self:json_decode(result)
       vim.api.nvim_exec_autocmds({ 'User' }, {
         pattern = 'CassandraAiRequestFinished',
-        data = { response = json }
+        data = { response = json },
       })
       if json == nil then
         logger.warn('HTTP response: no valid JSON from ' .. url)

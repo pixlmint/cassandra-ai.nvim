@@ -99,8 +99,7 @@ end
 local function_cache = {}
 local buffer_changedtick = {}
 local cache_access_order = {} -- Track access order for LRU eviction
-local MAX_CACHE_SIZE = 50     -- Limit cache to 50 buffers maximum
-
+local MAX_CACHE_SIZE = 50 -- Limit cache to 50 buffers maximum
 
 -- LRU cache management functions
 local function update_access_order(bufnr)
@@ -137,18 +136,20 @@ local function is_named_function(symbol)
   end
 
   -- Name must not be empty/whitespace
-  if not symbol.name:match("%S") then
+  if not symbol.name:match('%S') then
     return false
   end
 
   -- Skip generic names that indicate anonymous functions
   local lower_name = symbol.name:lower()
-  if lower_name == "function" or
-      lower_name == "lambda" or
-      lower_name == "anonymous" or
-      symbol.name:match("^function%(") or -- Lua-style "function(" pattern
-      symbol.name:match("^vim%.") or      -- Skip Neovim API wrappers
-      symbol.name:match("^%[%d+%]$") then -- LSP array-style anonymous functions "[1]", "[2]", required for lua_ls
+  if
+    lower_name == 'function'
+    or lower_name == 'lambda'
+    or lower_name == 'anonymous'
+    or symbol.name:match('^function%(') -- Lua-style "function(" pattern
+    or symbol.name:match('^vim%.') -- Skip Neovim API wrappers
+    or symbol.name:match('^%[%d+%]$')
+  then -- LSP array-style anonymous functions "[1]", "[2]", required for lua_ls
     return false
   end
 
@@ -179,8 +180,8 @@ function M.has_lsp_capability(bufnr, method)
       -- Additional LSP capabilities (textDocument/definition, textDocument/implementation)
       -- are handled in utils.lua for provider-specific features like the usages provider.
       local capability_map = {
-        ["textDocument/references"] = "referencesProvider",
-        ["textDocument/documentSymbol"] = "documentSymbolProvider",
+        ['textDocument/references'] = 'referencesProvider',
+        ['textDocument/documentSymbol'] = 'documentSymbolProvider',
       }
 
       local capability_key = capability_map[method]
@@ -217,13 +218,13 @@ function M.extract_symbols_recursive(symbols, functions, start_line, end_line)
         -- Handle both DocumentSymbol and SymbolInformation formats
         if symbol.range then
           -- DocumentSymbol format
-          line_num = symbol.range.start.line + 1      -- Convert to 1-indexed
-          end_line_num = symbol.range["end"].line + 1 -- Convert to 1-indexed
+          line_num = symbol.range.start.line + 1 -- Convert to 1-indexed
+          end_line_num = symbol.range['end'].line + 1 -- Convert to 1-indexed
           character = symbol.range.start.character
         elseif symbol.location then
           -- SymbolInformation format
           line_num = symbol.location.range.start.line + 1
-          end_line_num = symbol.location.range["end"].line + 1
+          end_line_num = symbol.location.range['end'].line + 1
           character = symbol.location.range.start.character
         end
 
@@ -233,7 +234,7 @@ function M.extract_symbols_recursive(symbols, functions, start_line, end_line)
             end_line = end_line_num,
             character = character,
             name = symbol.name,
-            kind = symbol.kind
+            kind = symbol.kind,
           })
         end
       end
@@ -254,7 +255,7 @@ function M.find_functions_via_lsp_async(bufnr, start_line, end_line, callback)
   end
 
   -- Check if any LSP client supports document symbols
-  if not M.has_lsp_capability(bufnr, "textDocument/documentSymbol") then
+  if not M.has_lsp_capability(bufnr, 'textDocument/documentSymbol') then
     callback({})
     return
   end
@@ -278,13 +279,13 @@ function M.find_functions_via_lsp_async(bufnr, start_line, end_line, callback)
   end
 
   local params = {
-    textDocument = vim.lsp.util.make_text_document_params(bufnr)
+    textDocument = vim.lsp.util.make_text_document_params(bufnr),
   }
 
   -- Add timing logs around the async LSP call
   -- local start_time = vim.loop.hrtime()
 
-  vim.lsp.buf_request(bufnr, "textDocument/documentSymbol", params, function(err, results)
+  vim.lsp.buf_request(bufnr, 'textDocument/documentSymbol', params, function(err, results)
     -- local end_time = vim.loop.hrtime()
     -- local duration_ms = (end_time - start_time) / 1000000 -- Convert to milliseconds
 
@@ -297,7 +298,7 @@ function M.find_functions_via_lsp_async(bufnr, start_line, end_line, callback)
 
     -- Process async results - different format than sync version
     -- In async callback, 'results' is the direct LSP response, not wrapped in client responses
-    if results and type(results) == "table" then
+    if results and type(results) == 'table' then
       M.extract_symbols_recursive(results, functions, 1, math.huge)
     end
 

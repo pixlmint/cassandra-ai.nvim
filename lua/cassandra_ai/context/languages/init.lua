@@ -60,8 +60,7 @@ end
 --- @param filetype string The filetype
 --- @return boolean
 function M.has_handler(filetype)
-  return filetype_map[filetype] ~= nil or
-      pcall(require, 'cassandra_ai.context.languages.' .. filetype)
+  return filetype_map[filetype] ~= nil or pcall(require, 'cassandra_ai.context.languages.' .. filetype)
 end
 
 --- Get list of supported languages
