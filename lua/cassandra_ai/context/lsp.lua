@@ -511,8 +511,12 @@ function LspContextProvider.debug_identifiers(bufnr, start_line, end_line)
   local all_nodes = {}
   local function visit(node)
     local sr, sc, er, _ = node:range()
-    if sr > end_line - 1 then return end
-    if er < start_line - 1 then return end
+    if sr > end_line - 1 then
+      return
+    end
+    if er < start_line - 1 then
+      return
+    end
 
     local text_ok, text = pcall(vim.treesitter.get_node_text, node, bufnr)
     local node_type = node:type()
@@ -534,7 +538,13 @@ function LspContextProvider.debug_identifiers(bufnr, start_line, end_line)
     local marker = n.is_ident and ' <-- MATCH' or ''
     print(string.format('  L%d:%d  %-35s %q%s', n.line, n.col, n.type, n.text, marker))
   end
-  print(string.format('--- %d nodes total, %d matched identifier_types ---', #all_nodes, vim.tbl_count(vim.tbl_filter(function(n) return n.is_ident end, all_nodes))))
+  print(string.format(
+    '--- %d nodes total, %d matched identifier_types ---',
+    #all_nodes,
+    vim.tbl_count(vim.tbl_filter(function(n)
+      return n.is_ident
+    end, all_nodes))
+  ))
 
   -- Also show identifiers from get_identifiers_in_range
   local idents = get_identifiers_in_range(bufnr, start_line, end_line)
