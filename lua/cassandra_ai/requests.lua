@@ -75,6 +75,9 @@ function Service:_Request(url, headers, data, cb, args)
       end
       if exit_code == nil then
         logger.trace('HTTP request cancelled: ' .. url)
+        vim.api.nvim_exec_autocmds({ 'User' }, {
+          pattern = 'CassandraAiRequestComplete',
+        })
         return
       end
       if exit_code ~= 0 then
