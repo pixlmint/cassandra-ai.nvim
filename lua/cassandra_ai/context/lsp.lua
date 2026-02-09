@@ -22,6 +22,10 @@ local identifier_types = {
   jsx_identifier = true,
   private_property_identifier = true,
   namespace_identifier = true,
+  -- PHP (tree-sitter-php uses 'name' instead of 'identifier')
+  name = true,
+  qualified_name = true,
+  variable_name = true,
 }
 
 local skip_names_common = {
@@ -482,6 +486,62 @@ function LspContextProvider:get_context(params, callback)
   local content = table.concat(parts, '\n')
   logger.trace('lsp: returning ' .. #definitions .. ' definition(s)')
   callback({ content = content, metadata = { source = 'lsp', definitions_count = #definitions } })
+end
+
+--- Debug: print all identifiers and their treesitter node types in a range.
+--- Usage: :lua require('cassandra_ai.context.lsp').debug_identifiers(0, 10, 20)
+function LspContextProvider.debug_identifiers(bufnr, start_line, end_line)
+  bufnr = bufnr or 0
+  start_line = start_line or math.max(1, vim.fn.line('.') - 10)
+  end_line = end_line or vim.fn.line('.') + 10
+
+  local ok, parser = pcall(vim.treesitter.get_parser, bufnr)
+  if not ok or not parser then
+    print('No treesitter parser for buffer ' .. bufnr)
+    return
+  end
+
+  local trees = parser:parse()
+  if not trees or not trees[1] then
+    print('No treesitter trees')
+    return
+  end
+
+  -- Collect ALL node types in range (not just identifier_types)
+  local all_nodes = {}
+  local function visit(node)
+    local sr, sc, er, _ = node:range()
+    if sr > end_line - 1 then return end
+    if er < start_line - 1 then return end
+
+    local text_ok, text = pcall(vim.treesitter.get_node_text, node, bufnr)
+    local node_type = node:type()
+    if text_ok and text and #text < 60 and not text:match('\n') then
+      table.insert(all_nodes, { type = node_type, text = text, line = sr + 1, col = sc, is_ident = identifier_types[node_type] or false })
+    end
+
+    for child in node:iter_children() do
+      visit(child)
+    end
+  end
+
+  for _, tree in ipairs(trees) do
+    visit(tree:root())
+  end
+
+  print(string.format('--- Nodes in lines %d-%d (buffer %d, ft=%s) ---', start_line, end_line, bufnr, vim.bo[bufnr].filetype))
+  for _, n in ipairs(all_nodes) do
+    local marker = n.is_ident and ' <-- MATCH' or ''
+    print(string.format('  L%d:%d  %-35s %q%s', n.line, n.col, n.type, n.text, marker))
+  end
+  print(string.format('--- %d nodes total, %d matched identifier_types ---', #all_nodes, vim.tbl_count(vim.tbl_filter(function(n) return n.is_ident end, all_nodes))))
+
+  -- Also show identifiers from get_identifiers_in_range
+  local idents = get_identifiers_in_range(bufnr, start_line, end_line)
+  print(string.format('--- get_identifiers_in_range returned %d identifier(s) ---', #idents))
+  for _, id in ipairs(idents) do
+    print(string.format('  %s (L%d:%d)', id.name, id.line + 1, id.col))
+  end
 end
 
 return LspContextProvider
