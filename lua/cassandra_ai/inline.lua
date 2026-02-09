@@ -368,6 +368,7 @@ function M.trigger()
       end
 
       if context_manager.is_enabled() and supports_context then
+        logger.trace('resolve_model() -> collect context')
         local params = {
           bufnr = bufnr,
           cursor_pos = { line = cursor_pos[1] - 1, col = cursor_pos[2] },

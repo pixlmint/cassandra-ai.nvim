@@ -138,6 +138,7 @@ end
 --- @param callback function Callback to invoke with merged context
 ---   Callback signature: function(merged_context: string)
 function M.gather_context(params, callback)
+  logger.trace('context.gather_context()')
   local results = {}
   local completed = 0
   local total = #registered_providers

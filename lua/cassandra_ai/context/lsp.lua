@@ -61,17 +61,21 @@ end
 
 --- Walk treesitter tree and collect unique identifiers in the given line range (1-indexed)
 local function get_identifiers_in_range(bufnr, start_line, end_line)
+  logger.trace(string.format('context.lsp.get_identifiers_in_range(%s, %s, %s)', bufnr, start_line, end_line))
   if not vim.treesitter or not vim.treesitter.get_parser then
+    logger.trace('context.lsp.get_identifiers_in_range() -> no treesitter, returning empty table')
     return {}
   end
 
   local ok, parser = pcall(vim.treesitter.get_parser, bufnr)
   if not ok or not parser then
+    logger.trace('context.lsp.get_identifiers_in_range() -> no treesitter parser for bufnr ' .. bufnr)
     return {}
   end
 
   local trees = parser:parse()
   if not trees or not trees[1] then
+    logger.trace('context.lsp.get_identifiers_in_range() -> no trees')
     return {}
   end
 
