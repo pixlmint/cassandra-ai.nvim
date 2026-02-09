@@ -335,35 +335,22 @@ function M.trigger()
     end
 
     local context_manager = require('cassandra_ai.context')
+    local formatters = require('cassandra_ai.prompt_formatters')
 
-    -- Ollama uses get_model; other backends use complete(before, after, cb) directly
-    if service.get_model then
-      service:get_model(function(model_config)
+    service:resolve_model(function(model_info)
+      if my_gen ~= generation then return end
+
+      local fmt = (model_info and model_info.formatter) or conf:get('formatter') or formatters.fim
+      local supports_context = (fmt == formatters.chat)
+
+      local function do_request(additional_context)
         if my_gen ~= generation then return end
+        start_time = os.clock()
+        local prompt_data = fmt(before, after, { filetype = ft }, additional_context)
+        current_job = service:complete(prompt_data, on_complete, model_info or {})
+      end
 
-        if context_manager.is_enabled() and model_config.allows_extra_context then
-          local params = {
-            bufnr = bufnr,
-            cursor_pos = { line = cursor_pos[1] - 1, col = cursor_pos[2] },
-            lines_before = before,
-            lines_after = after,
-            filetype = ft,
-          }
-          context_manager.gather_context(params, function(additional_context)
-            if my_gen ~= generation then return end
-            start_time = os.clock()
-            local prompt = model_config.prompt(before, after, nil, additional_context)
-            current_job = service:complete(prompt, on_complete, model_config)
-          end)
-        else
-          local prompt = model_config.prompt(before, after)
-          start_time = os.clock()
-          current_job = service:complete(prompt, on_complete, model_config)
-        end
-      end)
-    else
-      -- Non-Ollama backends: simple complete(before, after, cb)
-      if context_manager.is_enabled() then
+      if context_manager.is_enabled() and supports_context then
         local params = {
           bufnr = bufnr,
           cursor_pos = { line = cursor_pos[1] - 1, col = cursor_pos[2] },
@@ -372,15 +359,12 @@ function M.trigger()
           filetype = ft,
         }
         context_manager.gather_context(params, function(additional_context)
-          if my_gen ~= generation then return end
-          start_time = os.clock()
-          current_job = service:complete(before, after, on_complete, additional_context)
+          do_request(additional_context)
         end)
       else
-        start_time = os.clock()
-        current_job = service:complete(before, after, on_complete)
+        do_request(nil)
       end
-    end
+    end)
   end
 
   local surround_extractor = require('cassandra_ai.context.surround_extractor')

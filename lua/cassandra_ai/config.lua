@@ -16,6 +16,9 @@ local conf = {
   extra_context_providers = {},
   provider = 'Ollama',
   provider_options = {},
+  -- Prompt formatter: 'chat', 'fim', or a function(before, after, opts, ctx) -> PromptData
+  -- nil means adapter/model decides
+  formatter = nil,
   notify = true,
   notify_callback = function(msg)
     vim.notify(msg)
@@ -59,7 +62,35 @@ local conf = {
   },
 }
 
+--- Resolve a formatter value (string or function) to an actual function
+--- @param fmt string|function|nil
+--- @return function|nil
+local function resolve_formatter(fmt)
+  if fmt == nil then
+    return nil
+  end
+  if type(fmt) == 'function' then
+    return fmt
+  end
+  if type(fmt) == 'string' then
+    local formatters = require('cassandra_ai.prompt_formatters')
+    if formatters[fmt] then
+      return formatters[fmt]
+    end
+    -- Also check the legacy .formatters table
+    if formatters.formatters[fmt] then
+      return formatters.formatters[fmt]
+    end
+    local logger = require('cassandra_ai.logger')
+    logger.warn('config: unknown formatter "' .. fmt .. '", falling back to nil')
+    return nil
+  end
+  return nil
+end
+
 function M:setup(params)
+  params = params or {}
+
   -- Store the old provider name if it exists
   local old_provider_name = nil
   if type(conf.provider) == 'table' and conf.provider.name then
@@ -77,17 +108,21 @@ function M:setup(params)
 
   logger.trace('config:setup()')
 
+  -- Resolve formatter string to function
+  conf.formatter = resolve_formatter(conf.formatter)
+
   -- Determine the new provider name
   local new_provider_name = type(conf.provider) == 'string' and conf.provider or conf.provider.name
 
   -- Only reinitialize if the provider changed or if it's not initialized yet
   if type(conf.provider) == 'string' or (old_provider_name and old_provider_name ~= new_provider_name) then
     local provider_name = type(conf.provider) == 'string' and conf.provider:lower() or conf.provider.name:lower()
-    if provider_name ~= 'ollama' then
-      vim.notify_once("Going forward, " .. provider_name .. " is no longer maintained by pixlmint/cassandra-ai. Pin your plugin to tag `v1`, or fork the repo to handle maintenance yourself.", vim.log.levels.WARN)
+    logger.trace('config:setup() -> loading adapter: ' .. provider_name)
+    -- Try adapters/ first, fall back to backends/ for backward compat
+    local status, provider = pcall(require, 'cassandra_ai.adapters.' .. provider_name)
+    if not status then
+      status, provider = pcall(require, 'cassandra_ai.backends.' .. provider_name)
     end
-    logger.trace('config:setup() -> loading backend: ' .. provider_name)
-    local status, provider = pcall(require, 'cassandra_ai.backends.' .. provider_name)
     if status then
       conf.provider = provider:new(conf.provider_options)
       conf.provider.name = provider_name
