@@ -4,119 +4,93 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`cassandra-ai` is a Neovim plugin that provides AI-powered inline code completion. Named after the tragic Trojan priestess Cassandra. It's a general-purpose AI completion source that can be easily adapted to any REST API supporting remote code completion.
+`cassandra-ai` is a Neovim plugin that provides AI-powered inline code completion using ghost text (virtual text extmarks). Named after the tragic Trojan priestess Cassandra. It's a general-purpose AI completion source adapted to REST APIs supporting remote code completion. Only the Ollama backend is actively maintained; all other backends (OpenAI, Claude, Codestral, HuggingFace, Tabby, OpenWebUI) are deprecated.
 
 ## Code Formatting
 
 - **Indentation**: 2 spaces
 - **Quote style**: Auto-prefer single quotes
+- **Formatter**: `stylua` with config in `stylua.toml` (column width 1200)
+
+## Commands
+
+```bash
+make format          # Format with stylua
+make test            # Run all tests (mini.test)
+make test_file FILE=tests/test_config.lua  # Run a single test file
+make deps            # Clone test dependencies (plenary, mini.nvim, nvim-treesitter)
+```
+
+Tests use `mini.test` (not plenary busted). Test files follow the pattern `tests/test_*.lua`. The test harness runs headless nvim with `tests/minimal_init.lua`.
 
 ## Architecture
 
+### Completion Flow
+
+1. User types in insert mode -> `CursorMovedI` autocmd fires
+2. Debounce timer (150ms default) -> `inline.lua:trigger()`
+3. Generation counter increments (stale request detection)
+4. Context extracted: `max_lines` before/after cursor via `nvim_buf_get_lines()`
+5. Context providers gather additional context in parallel (with timeout)
+6. Provider's `complete()` called with `lines_before`, `lines_after`, `additional_context`
+7. Provider formats prompt via `prompt_formatters.lua`, makes async HTTP request via `requests.lua`
+8. Response callback checks generation counter is still current (discards stale)
+9. Post-processing: strips markdown code fences, removes overlapping context lines
+10. Ghost text rendered as inline virtual text extmarks
+
+### Key Design Patterns
+
+**Generation counter** (`inline.lua`): A monotonic counter incremented on each trigger. Every async callback checks `if my_gen ~= generation then return end` to discard responses from superseded requests.
+
+**Provider interface**: All backends inherit from `requests.lua` Service class, implement `:new(o, params)` and `:complete(lines_before, lines_after, cb, additional_context)`, return a `plenary.job` handle for cancellation.
+
+**Context provider interface**: Providers in `context/` inherit from `base.lua` BaseContextProvider, implement `:get_context(params, callback)`, `:is_available()`. The context manager (`context/init.lua`) gathers from all providers in parallel with configurable timeout, then merges results.
+
+**Config singleton**: `config.lua` stores state in a local `conf` table, dynamically loads backends via `require('cassandra_ai.backends.' .. provider_name)`, only reinitializes when provider changes.
+
 ### Core Components
 
-The plugin follows a provider-based architecture with these key layers:
-
 1. **Entry Point** (`lua/cassandra_ai/init.lua`): Calls `inline.setup()` and registers commands
-2. **Inline Completion** (`lua/cassandra_ai/inline.lua`): Core ghost text module using inline extmarks
-3. **Configuration Layer** (`lua/cassandra_ai/config.lua`): Manages plugin settings and dynamically loads backend providers
-4. **Backend Layer** (`lua/cassandra_ai/backends/*.lua`): Provider-specific implementations (OpenAI, Claude, Ollama, HuggingFace, Codestral, Tabby, OpenWebUI)
-5. **Request Layer** (`lua/cassandra_ai/requests.lua`): Generic HTTP request handling using curl and plenary.job
-6. **Prompt Formatters** (`lua/cassandra_ai/prompt_formatters.lua`): Provider-specific prompt formatting (FIM tokens, chat formatting, etc.)
-7. **Context Provider Layer** (`lua/cassandra_ai/context/*.lua`): Extensible system for injecting additional context (LSP, Treesitter, RAG, etc.) into completion requests
-
-### How Completion Works
-
-1. User types in buffer -> `inline.lua` triggers after debounce
-2. Generation counter pattern detects stale requests
-3. Context is extracted: `max_lines` before/after cursor using `nvim_buf_get_lines()`
-4. **[Optional]** Context providers gather additional context (LSP diagnostics, treesitter info, etc.)
-5. Configured provider's `complete()` method is called with `lines_before`, `lines_after`, and optional `additional_context`
-6. Provider formats the prompt using appropriate formatter (FIM tags, chat format, etc.)
-7. Provider makes HTTP request via `requests.lua` (curl-based, async via plenary.job)
-8. Provider parses response and extracts completion text
-9. Ghost text is displayed as inline virtual text extmarks
-
-### Provider Architecture
-
-Each backend in `lua/cassandra_ai/backends/` follows this pattern:
-- Inherits from `requests.lua` base class
-- Implements `:new(o, params)` constructor with provider-specific defaults
-- Implements `:complete(lines_before, lines_after, cb, additional_context)` method
-- Returns plenary.job handle from `complete()` for cancellation support
-- Handles API authentication via environment variables
-- Formats prompts using functions from `prompt_formatters.lua` or custom logic
-- Parses provider-specific response format and calls callback with completions array
-
-Special cases:
-- **Ollama**: Has model management logic (`configure_model()`) to detect loaded models and select appropriate one
-
-### Context Provider Architecture
-
-Context providers in `lua/cassandra_ai/context/` follow this pattern:
-- Inherit from `base.lua` BaseContextProvider class
-- Implement `:new(opts)` constructor with provider-specific defaults
-- Implement `:get_context(params, callback)` for async context gathering
-- Optionally implement `:get_context_sync(params)` for synchronous providers
-- Implement `:is_available()` to check for dependencies (LSP, Treesitter, etc.)
-- Return context in format `{ content = string, metadata = table }`
-
-Built-in context providers:
-- **Treesitter**: Extracts syntax tree context (parent nodes, current node type)
-- **LSP**: Provides diagnostics, symbols, and hover information
-- **Buffer**: Includes content from related open buffers
-
-### Prompt Formatting Strategies
-
-The plugin supports multiple prompt formatting strategies in `prompt_formatters.lua`. All formatters accept an optional `additional_context` parameter (4th argument) for context injection:
-
-1. **general_ai**: For chat-based models (GPT, Claude) - uses system prompt with `<code_prefix>` and `<code_suffix>` tags
-2. **ollama_code**: Uses `<PRE>`, `<SUF>`, `<MID>` tokens
-3. **santacoder**: Uses `<fim-prefix>`, `<fim-suffix>`, `<fim-middle>` tokens
-4. **codestral**: Uses `[SUFFIX]` and `[PREFIX]` markers
-5. **fim**: For codegemma/qwen - returns `{prompt, suffix}` table for models with native FIM support
-
-Signature: `formatter(lines_before, lines_after, opts, additional_context)`
-
-### Configuration System
-
-Configuration in `config.lua` uses a singleton pattern:
-- Stores global config state in local `conf` table
-- `setup()` dynamically loads backends from `lua/cassandra_ai/backends/` based on provider name
-- Provider switching is detected and only reinitializes when provider changes
-
-## Development
-
-### Testing Changes
-
-There is no formal test suite. To test changes:
-
-## Dependencies
-
-Runtime dependencies:
-- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) - Lua utilities (async, job control)
-- `curl` - for HTTP requests (not needed for Ollama)
-
-## Common Patterns
+2. **Inline Completion** (`lua/cassandra_ai/inline.lua`): Core ghost text engine - trigger, render, accept/dismiss/navigate completions
+3. **Configuration** (`lua/cassandra_ai/config.lua`): Singleton config with dynamic provider loading
+4. **Backends** (`lua/cassandra_ai/backends/*.lua`): Provider implementations. Ollama has special model management (`get_model()` queries `/api/ps` for loaded models)
+5. **Requests** (`lua/cassandra_ai/requests.lua`): Base HTTP class using curl via `plenary.job`, writes JSON to temp files
+6. **Prompt Formatters** (`lua/cassandra_ai/prompt_formatters.lua`): FIM token strategies (`general_ai`, `ollama_code`, `santacoder`, `codestral`, `fim`)
+7. **Context Providers** (`lua/cassandra_ai/context/`): LSP definitions, treesitter nodes, diagnostics, buffer content
+8. **Commands** (`lua/cassandra_ai/commands.lua`): `:Cassy` command tree with subcommands for context, log, config
+9. **Logger** (`lua/cassandra_ai/logger.lua`): File-based logging with threshold levels
+10. **Telemetry** (`lua/cassandra_ai/telemetry.lua`): Opt-in data collection to JSONL with async buffered writes
 
 ### User Commands
 
-The plugin provides debugging commands for context providers:
-- `:CassandraAiContextList` - List all registered context providers
-- `:CassandraAiContext <provider>` - Show context from a specific provider in a popup
-- `:CassandraAiContextAll` - Show merged context from all providers in a popup
-
-These commands are defined in `lua/cassandra_ai/commands.lua` and registered during plugin initialization.
+- `:Cassy context <provider>` - Show context from a provider in a popup
+- `:Cassy log` - Open log file
+- `:Cassy config auto_trigger toggle|enable|disable` - Toggle auto completion
+- `:Cassy config telemetry toggle|enable|disable` - Toggle telemetry
+- `:Cassy config log_level TRACE|DEBUG|INFO|WARN|ERROR` - Set log level
+- `:Cassy config model <name|auto>` - Override Ollama model
 
 ### Autocmd Events
 
-The plugin fires user autocmds for integration:
-- `User CassandraAiRequestStarted` - when a completion request begins
-- `User CassandraAiRequestComplete` - when a completion request finishes
+- `User CassandraAiRequestStarted` - completion request begins
+- `User CassandraAiRequestComplete` - completion request finishes
 - `User CassandraAiRequestFinished` - fired with response data after JSON parsing
 
-### Error Handling
+## Logging
 
-- Backends notify errors via `vim.notify()` with configurable logging (`log_errors` config option)
-- Failed HTTP requests (non-zero exit codes) return error items to callback
-- Missing API keys are detected at initialization and generate error notifications
+Use `local logger = require('cassandra_ai.logger')` at the top of each module. Default level is WARN. Levels DEBUG+ also fire `vim.notify()`; TRACE only writes to file.
+
+**Level usage:**
+- **trace**: Control flow, function entry/exit, discarded results — `logger.trace('Ollama:complete() -> model=' .. model)`
+- **debug**: State changes, successful operations — `logger.debug('provider loaded: ' .. name)`
+- **info**: Completion lifecycle events — `logger.info('completion accepted (' .. n .. ' lines)')`
+- **warn**: Recoverable problems, timeouts — `logger.warn('context: timed out after ' .. ms .. 'ms')`
+- **error**: Operation failures — `logger.error('HTTP request failed: ' .. url .. ' exit_code=' .. code)`
+
+Use `logger.fmt(level, fmt, ...)` for formatted messages. Always include identifiers (provider name, URL, generation number) and prefix with module context (`'Ollama:get_model() -> ...'`, `'context: ...'`).
+
+## Dependencies
+
+- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) - async job control
+- `curl` - HTTP requests (not needed for Ollama local)
+- Treesitter, LSP (optional) - for context providers
