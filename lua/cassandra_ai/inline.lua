@@ -259,20 +259,6 @@ function M.trigger()
 
     local start_time
 
-    if telemetry:is_enabled() then
-      local provider = conf:get('provider')
-      telemetry:log_request(request_id, {
-        cwd = vim.fn.getcwd(),
-        filename = vim.api.nvim_buf_get_name(0),
-        filetype = vim.bo.filetype,
-        cursor = { line = cursor_pos[1], col = cursor_pos[2] },
-        lines_before = before,
-        lines_after = after,
-        provider = provider.name,
-        provider_config = safe_serialize_config(provider.params),
-      })
-    end
-
     vim.api.nvim_exec_autocmds({ 'User' }, {
       pattern = 'CassandraAiRequestStarted',
     })
@@ -360,6 +346,24 @@ function M.trigger()
         end
         start_time = os.clock()
         local prompt_data = fmt(before, after, { filetype = ft }, additional_context)
+
+        if telemetry:is_enabled() then
+          local provider = conf:get('provider')
+          telemetry:log_request(request_id, {
+            cwd = vim.fn.getcwd(),
+            filename = vim.api.nvim_buf_get_name(0),
+            filetype = ft,
+            cursor = { line = cursor_pos[1], col = cursor_pos[2] },
+            lines_before = before,
+            lines_after = after,
+            provider = provider.name,
+            provider_config = safe_serialize_config(provider.params),
+            model = model_info and model_info.model,
+            prompt_data = prompt_data,
+            additional_context = additional_context,
+          })
+        end
+
         current_job = service:complete(prompt_data, on_complete, model_info or {})
       end
 

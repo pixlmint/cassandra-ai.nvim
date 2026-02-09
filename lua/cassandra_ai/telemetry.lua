@@ -53,7 +53,7 @@ end
 
 --- Log a request event
 --- @param request_id string UUID for this request
---- @param data table Request data (cwd, filename, filetype, cursor, lines_before, lines_after, provider, provider_config)
+--- @param data table Request data (cwd, filename, filetype, cursor, lines_before, lines_after, provider, provider_config, model, prompt_data, additional_context)
 function Telemetry:log_request(request_id, data)
   if not config.enabled then
     return
@@ -71,6 +71,9 @@ function Telemetry:log_request(request_id, data)
     lines_after = data.lines_after,
     provider = data.provider,
     provider_config = data.provider_config,
+    model = data.model,
+    prompt_data = data.prompt_data,
+    additional_context = data.additional_context,
   }
 
   self:_add_to_buffer(entry)
