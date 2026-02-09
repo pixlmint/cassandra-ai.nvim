@@ -73,12 +73,17 @@ function Service:_Request(url, headers, data, cb, args)
       if tmpfname ~= nil then
         os.remove(tmpfname)
       end
+      if exit_code == nil then
+        logger.trace('HTTP request cancelled: ' .. url)
+        return
+      end
       if exit_code ~= 0 then
         logger.error('HTTP request failed: ' .. url .. ' exit_code=' .. exit_code)
         if conf:get('log_errors') then
           vim.notify('An Error Occurred ...', vim.log.levels.ERROR)
         end
         cb({ { error = 'ERROR: API Error' } })
+        return
       end
 
       local result = table.concat(response:result(), '\n')
