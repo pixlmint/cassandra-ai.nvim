@@ -219,6 +219,32 @@ local function strip_context_overlap(text, lines_before, lines_after)
   return table.concat(result, '\n')
 end
 
+--- Strip markdown code fences some providers wrap responses in.
+local function strip_markdown_fences(text)
+  local lines = vim.split(text, '\n', { plain = true })
+  if #lines < 2 then
+    return text
+  end
+  if lines[1]:match('^```') then
+    table.remove(lines, 1)
+    if #lines > 0 then
+      lines[1] = lines[1]:gsub('^%s+', '')
+    end
+  end
+  if #lines > 0 and lines[#lines]:match('^```') then
+    table.remove(lines, #lines)
+  end
+  return table.concat(lines, '\n')
+end
+
+--- Post-process completion candidates: strip fences and context overlap.
+local function postprocess_completions(data, lines_before, lines_after)
+  for i, item in ipairs(data) do
+    data[i] = strip_context_overlap(strip_markdown_fences(item), lines_before, lines_after)
+  end
+  return data
+end
+
 -- ---------------------------------------------------------------------------
 -- Deferred validation
 -- ---------------------------------------------------------------------------
@@ -352,13 +378,175 @@ reset_validation_idle_timer = function()
 end
 
 -- ---------------------------------------------------------------------------
--- Main trigger
+-- Completion pipeline
 -- ---------------------------------------------------------------------------
+
+--- Resolve the prompt formatter from model info and config.
+local function resolve_formatter(model_info)
+  local formatters = require('cassandra_ai.prompt_formatters')
+  local fmt = (model_info and model_info.formatter) or conf:get('formatter') or formatters.fim
+  if type(fmt) == 'string' then
+    if formatters[fmt] then
+      fmt = formatters[fmt]
+    else
+      logger.warn('config: unknown formatter "' .. fmt .. '", falling back to fim')
+      fmt = formatters.fim
+    end
+  end
+  return fmt
+end
+
+--- Handle a completion response from the provider.
+local function handle_completion_response(req, data)
+  current_job = nil
+  local elapsed_ms = (os.clock() - req.start_time) * 1000
+  local telemetry = require('cassandra_ai.telemetry')
+  if telemetry:is_enabled() then
+    telemetry:log_response(req.request_id, {
+      response_raw = data,
+      response_time_ms = elapsed_ms,
+    })
+  end
+
+  if req.gen ~= generation then
+    logger.trace('on_complete() -> discarding: stale generation')
+    return
+  end
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    logger.trace('on_complete() -> discarding: buffer invalid')
+    clear_validation_state()
+    return
+  end
+  if vim.fn.mode() ~= 'i' then
+    logger.trace('on_complete() -> discarding: left insert mode')
+    clear_validation_state()
+    return
+  end
+
+  local cur = vim.api.nvim_win_get_cursor(0)
+  local ic = conf:get('inline')
+  local use_deferred = auto_triggered and ic.deferred_validation
+
+  if use_deferred then
+    if cur[1] ~= cursor_pos[1] then
+      logger.trace('on_complete() -> discarding: cursor moved to different line')
+      clear_validation_state()
+      return
+    end
+  else
+    if cur[1] ~= cursor_pos[1] or cur[2] ~= cursor_pos[2] then
+      logger.trace('on_complete() -> discarding: cursor moved')
+      return
+    end
+  end
+
+  vim.api.nvim_exec_autocmds({ 'User' }, {
+    pattern = 'CassandraAiRequestComplete',
+  })
+
+  if not data or #data == 0 then
+    logger.trace('on_complete() -> no completions returned')
+    clear_validation_state()
+    return
+  end
+
+  postprocess_completions(data, req.before, req.after)
+
+  logger.info(string.format('completion received: %d item(s) in %.0fms', #data, elapsed_ms))
+
+  if use_deferred then
+    pending_validation = {
+      completions = data,
+      trigger_pos = cursor_pos,
+      trigger_bufnr = bufnr,
+      trigger_line_text = vim.api.nvim_buf_get_lines(bufnr, cursor_pos[1] - 1, cursor_pos[1], false)[1] or '',
+    }
+    logger.trace('on_complete() -> deferred: stored ' .. #data .. ' completion(s) for validation')
+    validate_or_defer()
+  else
+    completions = data
+    current_index = 1
+    render_ghost_text(completions[current_index])
+  end
+end
+
+--- Build prompt and send the completion request.
+local function dispatch_request(req, service, fmt, model_info, additional_context)
+  if req.gen ~= generation then
+    return
+  end
+  req.start_time = os.clock()
+  local prompt_data = fmt(req.before, req.after, { filetype = req.ft, rejected_completions = req.rejected }, additional_context)
+
+  local telemetry = require('cassandra_ai.telemetry')
+  if telemetry:is_enabled() then
+    local provider = conf:get('provider')
+    telemetry:log_request(req.request_id, {
+      cwd = vim.fn.getcwd(),
+      filename = vim.api.nvim_buf_get_name(0),
+      filetype = req.ft,
+      cursor = { line = cursor_pos[1], col = cursor_pos[2] },
+      lines_before = req.before,
+      lines_after = req.after,
+      provider = provider.name,
+      provider_config = safe_serialize_config(provider.params),
+      model = model_info and model_info.model,
+      prompt_data = prompt_data,
+      additional_context = additional_context,
+    })
+  end
+
+  current_job = service:complete(prompt_data, function(data)
+    handle_completion_response(req, data)
+  end, model_info or {})
+end
+
+--- Gather additional context (if enabled) and dispatch the request.
+local function gather_and_dispatch(req, service, fmt, model_info)
+  local context_manager = require('cassandra_ai.context')
+  local supports_context = (fmt == require('cassandra_ai.prompt_formatters').chat)
+
+  if context_manager.is_enabled() and supports_context then
+    logger.trace('gather_and_dispatch() -> collecting context')
+    local params = {
+      bufnr = bufnr,
+      cursor_pos = { line = cursor_pos[1] - 1, col = cursor_pos[2] },
+      lines_before = req.before,
+      lines_after = req.after,
+      filetype = req.ft,
+    }
+    context_manager.gather_context(params, function(additional_context)
+      dispatch_request(req, service, fmt, model_info, additional_context)
+    end)
+  else
+    dispatch_request(req, service, fmt, model_info, nil)
+  end
+end
+
+--- Extract surrounding context using the configured strategy.
+local function extract_surround(req, callback)
+  local surround_extractor = require('cassandra_ai.context.surround_extractor')
+  local ctx = {
+    cursor = { line = cursor_pos[1], col = cursor_pos[2] },
+    bufnr = bufnr,
+  }
+  local strategy = conf:get('surround_extractor_strategy')
+  if strategy == 'smart' then
+    require('cassandra_ai.context.utils').detect_suggestion_context(bufnr, cursor_pos, function(current_context)
+      if req.gen ~= generation then
+        return
+      end
+      ctx.current_context = current_context
+      callback(surround_extractor.smart_extractor(ctx))
+    end)
+  else
+    callback(surround_extractor.simple_extractor(ctx))
+  end
+end
 
 function M.trigger(opts)
   opts = opts or {}
 
-  -- Bail if not insert mode
   if vim.fn.mode() ~= 'i' then
     return
   end
@@ -374,14 +562,12 @@ function M.trigger(opts)
   clear_validation_state()
 
   generation = generation + 1
-  local my_gen = generation
   auto_triggered = opts.auto or false
 
   bufnr = vim.api.nvim_get_current_buf()
   cursor_pos = vim.api.nvim_win_get_cursor(0)
   completions = {}
   current_index = 0
-  current_request_id = nil
 
   local rejected = pending_rejected
   pending_rejected = {}
@@ -392,203 +578,36 @@ function M.trigger(opts)
     return
   end
 
-  logger.info('trigger: generation=' .. my_gen .. ' buf=' .. bufnr .. ' ft=' .. ft)
+  local req = {
+    gen = generation,
+    ft = ft,
+    rejected = rejected,
+    request_id = generate_uuid(),
+  }
+  current_request_id = req.request_id
 
-  local function do_complete(surround_context)
-    if my_gen ~= generation then
+  logger.info('trigger: generation=' .. req.gen .. ' buf=' .. bufnr .. ' ft=' .. ft)
+
+  extract_surround(req, function(surround_context)
+    if req.gen ~= generation then
       return
     end
 
-    local before = surround_context.lines_before
-    local after = surround_context.lines_after
-
-    local request_id = generate_uuid()
-    current_request_id = request_id
-    local telemetry = require('cassandra_ai.telemetry')
-
-    local start_time
+    req.before = surround_context.lines_before
+    req.after = surround_context.lines_after
 
     vim.api.nvim_exec_autocmds({ 'User' }, {
       pattern = 'CassandraAiRequestStarted',
     })
 
-    local function on_complete(data)
-      current_job = nil
-      local elapsed_ms = (os.clock() - start_time) * 1000
-      if telemetry:is_enabled() then
-        telemetry:log_response(request_id, {
-          response_raw = data,
-          response_time_ms = elapsed_ms,
-        })
-      end
-      -- Stale check
-      if my_gen ~= generation then
-        logger.trace('on_complete() -> discarding: stale generation')
-        return
-      end
-      if not vim.api.nvim_buf_is_valid(bufnr) then
-        logger.trace('on_complete() -> discarding: buffer invalid')
-        clear_validation_state()
-        return
-      end
-      if vim.fn.mode() ~= 'i' then
-        logger.trace('on_complete() -> discarding: left insert mode')
-        clear_validation_state()
-        return
-      end
-
-      local cur = vim.api.nvim_win_get_cursor(0)
-      local ic = conf:get('inline')
-      local use_deferred = auto_triggered and ic.deferred_validation
-
-      if use_deferred then
-        -- For auto-triggered with deferred validation: only require same line
-        if cur[1] ~= cursor_pos[1] then
-          logger.trace('on_complete() -> discarding: cursor moved to different line')
-          clear_validation_state()
-          return
-        end
-      else
-        -- Manual trigger or deferred disabled: require exact cursor match
-        if cur[1] ~= cursor_pos[1] or cur[2] ~= cursor_pos[2] then
-          logger.trace('on_complete() -> discarding: cursor moved')
-          return
-        end
-      end
-
-      vim.api.nvim_exec_autocmds({ 'User' }, {
-        pattern = 'CassandraAiRequestComplete',
-      })
-
-      if not data or #data == 0 then
-        logger.trace('on_complete() -> no completions returned')
-        clear_validation_state()
-        return
-      end
-
-      -- Strip markdown code fences some providers wrap responses in
-      for i, item in ipairs(data) do
-        local lines = vim.split(item, '\n', { plain = true })
-        if #lines >= 2 then
-          if lines[1]:match('^```') then
-            table.remove(lines, 1)
-            -- Remove leading whitespace from the next line if we removed a code fence
-            if #lines > 0 then
-              lines[1] = lines[1]:gsub('^%s+', '')
-            end
-          end
-          if #lines > 0 and lines[#lines]:match('^```') then
-            table.remove(lines, #lines)
-          end
-          data[i] = table.concat(lines, '\n')
-        end
-      end
-
-      -- Strip lines at edges that overlap with the surrounding context
-      for i, item in ipairs(data) do
-        data[i] = strip_context_overlap(item, before, after)
-      end
-
-      logger.info(string.format('completion received: %d item(s) in %.0fms', #data, elapsed_ms))
-
-      if use_deferred then
-        -- Store for validation instead of rendering immediately
-        pending_validation = {
-          completions = data,
-          trigger_pos = cursor_pos,
-          trigger_bufnr = bufnr,
-          trigger_line_text = vim.api.nvim_buf_get_lines(bufnr, cursor_pos[1] - 1, cursor_pos[1], false)[1] or '',
-        }
-        logger.trace('on_complete() -> deferred: stored ' .. #data .. ' completion(s) for validation')
-        validate_or_defer()
-      else
-        completions = data
-        current_index = 1
-        render_ghost_text(completions[current_index])
-      end
-    end
-
-    local context_manager = require('cassandra_ai.context')
-    local formatters = require('cassandra_ai.prompt_formatters')
-
     service:resolve_model(function(model_info)
-      if my_gen ~= generation then
+      if req.gen ~= generation then
         return
       end
-
-      local fmt = (model_info and model_info.formatter) or conf:get('formatter') or formatters.fim
-      if type(fmt) == 'string' then
-        if formatters[fmt] then
-          return formatters[fmt]
-        end
-        logger.warn('config: unknown formatter "' .. fmt .. '", falling back to nil')
-        return
-      end
-      local supports_context = (fmt == formatters.chat)
-
-      local function do_request(additional_context)
-        if my_gen ~= generation then
-          return
-        end
-        start_time = os.clock()
-        local prompt_data = fmt(before, after, { filetype = ft, rejected_completions = rejected }, additional_context)
-
-        if telemetry:is_enabled() then
-          local provider = conf:get('provider')
-          telemetry:log_request(request_id, {
-            cwd = vim.fn.getcwd(),
-            filename = vim.api.nvim_buf_get_name(0),
-            filetype = ft,
-            cursor = { line = cursor_pos[1], col = cursor_pos[2] },
-            lines_before = before,
-            lines_after = after,
-            provider = provider.name,
-            provider_config = safe_serialize_config(provider.params),
-            model = model_info and model_info.model,
-            prompt_data = prompt_data,
-            additional_context = additional_context,
-          })
-        end
-
-        current_job = service:complete(prompt_data, on_complete, model_info or {})
-      end
-
-      if context_manager.is_enabled() and supports_context then
-        logger.trace('resolve_model() -> collect context')
-        local params = {
-          bufnr = bufnr,
-          cursor_pos = { line = cursor_pos[1] - 1, col = cursor_pos[2] },
-          lines_before = before,
-          lines_after = after,
-          filetype = ft,
-        }
-        context_manager.gather_context(params, function(additional_context)
-          do_request(additional_context)
-        end)
-      else
-        do_request(nil)
-      end
+      local fmt = resolve_formatter(model_info)
+      gather_and_dispatch(req, service, fmt, model_info)
     end)
-  end
-
-  local surround_extractor = require('cassandra_ai.context.surround_extractor')
-  local ctx = {
-    cursor = { line = cursor_pos[1], col = cursor_pos[2] },
-    bufnr = bufnr,
-  }
-
-  local strategy = conf:get('surround_extractor_strategy')
-  if strategy == 'smart' then
-    require('cassandra_ai.context.utils').detect_suggestion_context(bufnr, cursor_pos, function(current_context)
-      if my_gen ~= generation then
-        return
-      end
-      ctx.current_context = current_context
-      do_complete(surround_extractor.smart_extractor(ctx))
-    end)
-  else
-    do_complete(surround_extractor.simple_extractor(ctx))
-  end
+  end)
 end
 
 -- ---------------------------------------------------------------------------
