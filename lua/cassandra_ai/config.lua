@@ -24,7 +24,7 @@ local conf = {
   },
 
   logging = {
-    level = 'WARN',  -- TRACE | DEBUG | INFO | WARN | ERROR (set to nil to disable logging)
+    level = 'WARN', -- TRACE | DEBUG | INFO | WARN | ERROR (set to nil to disable logging)
     file = vim.fn.stdpath('data') .. '/cassandra-ai/cassandra-ai.log',
   },
 
@@ -105,7 +105,7 @@ function M:setup(params)
     for _, model_params in pairs(conf.provider_options.model_configs) do
       if model_params.formatter and type(model_params.formatter) == 'string' then
         if formatters[model_params.formatter] == nil then
-          logger.error("Unknown formatter: " .. model_params.formatter)
+          logger.error('Unknown formatter: ' .. model_params.formatter)
         else
           model_params.formatter = formatters[model_params.formatter]
         end

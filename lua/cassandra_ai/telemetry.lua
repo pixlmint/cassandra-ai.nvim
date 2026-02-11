@@ -10,7 +10,7 @@ local instance = nil
 -- Default config
 local default_config = {
   enabled = false,
-  data_file = nil,  -- overwritten by config
+  data_file = nil, -- overwritten by config
   buffer_size = 50,
 }
 
