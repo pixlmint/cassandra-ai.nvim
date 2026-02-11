@@ -760,11 +760,30 @@ local function setup_autocmds()
         validate_or_defer()
         return
       end
-      if is_visible and cursor_pos then
+      if is_visible and cursor_pos and #completions > 0 then
         local cur = vim.api.nvim_win_get_cursor(0)
-        if cur[1] ~= cursor_pos[1] or cur[2] ~= cursor_pos[2] then
-          M.dismiss()
+        if cur[1] == cursor_pos[1] and cur[2] > cursor_pos[2] then
+          -- User typed forward on the same line — check if it matches the completion
+          local advance = cur[2] - cursor_pos[2]
+          local text = completions[current_index]
+          local prefix = text:sub(1, advance)
+          local line = vim.api.nvim_buf_get_lines(bufnr, cur[1] - 1, cur[1], false)[1] or ''
+          local typed = line:sub(cursor_pos[2] + 1, cur[2])
+          if typed == prefix then
+            -- Still matching — trim completion and re-render at new cursor
+            local trimmed = text:sub(advance + 1)
+            if trimmed == '' then
+              M.dismiss()
+            else
+              completions[current_index] = trimmed
+              cursor_pos = cur
+              render_ghost_text(trimmed)
+            end
+            return
+          end
         end
+        -- Mismatch or moved elsewhere — dismiss and allow re-trigger
+        M.dismiss()
       end
       debounced_trigger()
     end,
