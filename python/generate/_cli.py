@@ -63,6 +63,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
                         help="Max lines in the middle section (default: 30)")
     parser.add_argument("--max-total-chars", type=int, default=8192,
                         help="Max total chars per example (default: 8192)")
+    parser.add_argument("--max-seq-len", type=int, default=0,
+                        help="Token budget for training (0=disabled). Truncates prefix/suffix "
+                             "to fit; middle is never truncated. (suggested: 1536)")
     parser.add_argument("--val-split", type=float, default=0.1,
                         help="Validation split ratio (default: 0.1)")
     parser.add_argument("--seed", type=int, default=42,
@@ -197,12 +200,14 @@ def apply_postprocessing(args, all_examples):
     return all_examples, rejected_examples, rejected_by_kind
 
 
-def preview_examples(examples, count, fim_config):
+def preview_examples(examples, count, fim_config, max_seq_len=0):
     """Display a preview of generated examples."""
     print(f"\n{'=' * 60}")
     print(f"PREVIEW ({count} examples)")
     print(f"{'=' * 60}")
     for ex in random.sample(examples, min(count, len(examples))):
+        if max_seq_len > 0:
+            ex = ex.truncate_to_token_budget(fim_config, max_seq_len)
         formatted = fim_config.format_psm(
             ex.cross_file_context + ex.prefix, ex.middle, ex.suffix
         )
@@ -218,7 +223,7 @@ def preview_examples(examples, count, fim_config):
         print(f"Total formatted length: {len(formatted)} chars")
 
 
-def write_output(args, all_examples, fim_config, use_ast, rejected_examples, source_files, lang_config, rejected_by_kind=None):
+def write_output(args, all_examples, fim_config, use_ast, rejected_examples, source_files, lang_config, rejected_by_kind=None, max_seq_len=0):
     """Split into train/val and write JSONL + metadata files. Also writes reject.jsonl if there are rejected examples."""
     # Shuffle and split (unless curriculum mode, which keeps the sort order)
     if not args.curriculum:
@@ -242,14 +247,14 @@ def write_output(args, all_examples, fim_config, use_ast, rejected_examples, sou
     for path, examples in [(train_path, train_examples), (val_path, val_examples)]:
         with open(path, "w") as f:
             for ex in examples:
-                json.dump(ex.to_training_format(fim_config), f)
+                json.dump(ex.to_training_format(fim_config, max_seq_len=max_seq_len), f)
                 f.write("\n")
         print(f"  Wrote {path} ({len(examples)} examples)")
 
     if rejected_examples:
         with open(reject_path, "w") as f:
             for ex in rejected_examples:
-                json.dump(ex.to_training_format(fim_config), f)
+                json.dump(ex.to_training_format(fim_config, max_seq_len=max_seq_len), f)
                 f.write("\n")
         print(f"  Wrote {reject_path} ({len(rejected_examples)} examples)")
 
@@ -274,6 +279,7 @@ def write_output(args, all_examples, fim_config, use_ast, rejected_examples, sou
         "tested_only": args.tested_only,
         "max_middle_lines": args.max_middle_lines,
         "max_total_chars": args.max_total_chars,
+        "max_seq_len": max_seq_len,
         "train_examples": len(train_examples),
         "val_examples": len(val_examples),
         "total_files": len(source_files),
@@ -303,6 +309,13 @@ def main():
     random.seed(args.seed)
     fim_config = FIM_CONFIGS[args.base_model]
 
+    # Auto-lower max_total_chars when --max-seq-len is set and --max-total-chars wasn't explicit
+    if args.max_seq_len > 0:
+        auto_chars = args.max_seq_len * 4 + 1024
+        if args.max_total_chars == 8192 and auto_chars < args.max_total_chars:
+            args.max_total_chars = auto_chars
+            print(f"Auto-lowered --max-total-chars to {auto_chars} (from --max-seq-len {args.max_seq_len})")
+
     # Resolve language config
     lang_config = get_language(args.language)
 
@@ -327,7 +340,7 @@ def main():
     print_dataset_stats(all_examples, rejected=len(rejected_examples), rejected_by_kind=rejected_by_kind)
 
     if args.preview > 0:
-        preview_examples(all_examples, args.preview, fim_config)
+        preview_examples(all_examples, args.preview, fim_config, max_seq_len=args.max_seq_len)
         return
 
-    write_output(args, all_examples, fim_config, use_ast, rejected_examples, source_files, lang_config, rejected_by_kind)
+    write_output(args, all_examples, fim_config, use_ast, rejected_examples, source_files, lang_config, rejected_by_kind, max_seq_len=args.max_seq_len)
