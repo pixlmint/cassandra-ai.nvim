@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fim.deps import Parser
 from fim.types import CodeSpan, FIMExample, BM25Index, MIN_MIDDLE_WORDS
-from ._spans_ast import extract_spans_ast
+from ._spans_ast import extract_spans_ast, _find_deepest_containing
 from ._spans_regex import extract_spans_regex
 from ._spans_charlevel import generate_char_level_splits
 from ._spans_devbehavior import (
@@ -90,6 +90,7 @@ def _make_example_from_byte_span(
     max_total_chars: int,
     lines: list[str],
     min_words: int = MIN_MIDDLE_WORDS,
+    max_middle_lines: int = 0,
 ) -> FIMExample | None:
     """Create a FIMExample from a span with byte offsets."""
     sb, eb = span.start_byte, span.end_byte
@@ -98,6 +99,10 @@ def _make_example_from_byte_span(
     suffix = source[eb:]
 
     if not middle.strip() or len(middle.split()) < min_words:
+        return None
+
+    mid_lines = middle.count("\n") + 1
+    if max_middle_lines > 0 and mid_lines > max_middle_lines:
         return None
 
     total = len(prefix) + len(middle) + len(suffix) + len(xf_context)
@@ -111,7 +116,6 @@ def _make_example_from_byte_span(
         if total > max_total_chars:
             return None
 
-    mid_lines = middle.count("\n") + 1
     return FIMExample(
         filepath=rel_path,
         span_kind=span.kind,
@@ -124,6 +128,136 @@ def _make_example_from_byte_span(
         total_lines=len(lines),
         skip_quality_filters=span.skip_quality_filters,
     )
+
+
+def _split_byte_span_by_statements(
+    source_bytes: bytes,
+    span: CodeSpan,
+    tree_root: "Node",
+    max_middle_lines: int,
+) -> list[CodeSpan]:
+    """Split an oversized byte span into statement-grouped sub-spans.
+
+    Finds the deepest AST node containing the span, drills into its body
+    child (compound_statement / block / statement_block), and groups
+    statement children into chunks of <= max_middle_lines each.
+
+    Returns empty list if no statement children found (caller should
+    use sliding window fallback).
+    """
+    containing = _find_deepest_containing(tree_root, span.start_byte, span.end_byte)
+
+    # Drill into body child if present
+    body_types = frozenset({"compound_statement", "block", "statement_block"})
+    target = containing
+    for child in containing.children:
+        if child.type in body_types:
+            target = child
+            break
+
+    # Collect statement children (skip punctuation/delimiters)
+    skip_types = frozenset({
+        "{", "}", "(", ")", "[", "]", ":", ";",
+        "NEWLINE", "INDENT", "DEDENT", "comment",
+    })
+    statements = [c for c in target.children if c.type not in skip_types and c.type]
+    if not statements:
+        return []
+
+    sub_spans: list[CodeSpan] = []
+    group_start = statements[0].start_byte
+    group_start_line = source_bytes[:group_start].count(b"\n")
+
+    for stmt in statements:
+        stmt_end_line = source_bytes[:stmt.end_byte].count(b"\n")
+        group_lines = stmt_end_line - group_start_line + 1
+        if group_lines > max_middle_lines and group_start != stmt.start_byte:
+            # Finalize current group (exclude this statement)
+            sub_spans.append(CodeSpan(
+                kind=span.kind + "_split",
+                start_line=group_start_line,
+                end_line=source_bytes[:prev_end].count(b"\n"),
+                name=span.name,
+                start_byte=group_start,
+                end_byte=prev_end,
+                skip_quality_filters=span.skip_quality_filters,
+            ))
+            group_start = stmt.start_byte
+            group_start_line = source_bytes[:group_start].count(b"\n")
+        prev_end = stmt.end_byte
+
+    # Finalize last group
+    if group_start < statements[-1].end_byte:
+        sub_spans.append(CodeSpan(
+            kind=span.kind + "_split",
+            start_line=group_start_line,
+            end_line=source_bytes[:statements[-1].end_byte].count(b"\n"),
+            name=span.name,
+            start_byte=group_start,
+            end_byte=statements[-1].end_byte,
+            skip_quality_filters=span.skip_quality_filters,
+        ))
+
+    return sub_spans
+
+
+def _split_byte_span_sliding_window(
+    source: str,
+    span: CodeSpan,
+    max_middle_lines: int,
+    stride: int = 0,
+) -> list[CodeSpan]:
+    """Split an oversized byte span using a sliding window over lines.
+
+    Slides a max_middle_lines-sized window with 50% overlap (default stride)
+    across the middle text, emitting each window as a sub-span.
+    """
+    if stride <= 0:
+        stride = max(1, max_middle_lines // 2)
+
+    middle = source[span.start_byte:span.end_byte]
+    mid_lines = middle.split("\n")
+
+    if len(mid_lines) <= max_middle_lines:
+        return [span]
+
+    # Compute byte offset of each line within the middle
+    line_byte_offsets = []
+    offset = 0
+    for line in mid_lines:
+        line_byte_offsets.append(offset)
+        offset += len(line.encode("utf-8")) + 1  # +1 for newline
+
+    sub_spans: list[CodeSpan] = []
+    i = 0
+    while i < len(mid_lines):
+        end_i = min(i + max_middle_lines, len(mid_lines))
+
+        # Compute byte offsets relative to source
+        window_start = span.start_byte + line_byte_offsets[i]
+        if end_i < len(mid_lines):
+            window_end = span.start_byte + line_byte_offsets[end_i] - 1  # exclude trailing newline
+        else:
+            window_end = span.end_byte
+
+        if window_end > window_start:
+            start_line = source[:window_start].count("\n")
+            end_line = source[:window_end].count("\n")
+            sub_spans.append(CodeSpan(
+                kind=span.kind + "_window",
+                start_line=start_line,
+                end_line=end_line,
+                name=span.name,
+                start_byte=window_start,
+                end_byte=window_end,
+                skip_quality_filters=span.skip_quality_filters,
+            ))
+
+        if end_i >= len(mid_lines):
+            break
+        i += stride
+
+    return sub_spans
 
 
 def _make_example_from_line_span(
@@ -256,15 +390,58 @@ def generate_fim_examples(
         all_spans = [s for s in all_spans if s.kind not in exclude_spans]
 
     # --- Convert spans to FIMExamples ---
+    source_bytes = source.encode("utf-8")
+
+    def _attach_bm25_and_append(ex: FIMExample):
+        if bm25_file_ctx:
+            combined = bm25_file_ctx + ex.cross_file_context
+            total = len(ex.prefix) + len(ex.middle) + len(ex.suffix) + len(combined)
+            if total <= max_total_chars:
+                ex.cross_file_context = combined
+        examples.append(ex)
+
     for span in all_spans:
-        ex = None
         if span.start_byte >= 0 and span.end_byte > span.start_byte:
             # Byte-offset spans (AST, dev-behavior)
             min_w = 1 if span.kind.startswith("dev_") else MIN_MIDDLE_WORDS
-            ex = _make_example_from_byte_span(
-                source, span, rel_path, xf_context, max_total_chars, lines,
-                min_words=min_w,
-            )
+            middle = source[span.start_byte:span.end_byte]
+            mid_lines = middle.count("\n") + 1
+
+            if max_middle_lines > 0 and mid_lines > max_middle_lines:
+                # Oversized span — try statement-aware split, then sliding window
+                sub_spans: list[CodeSpan] = []
+                if tree_root is not None:
+                    sub_spans = _split_byte_span_by_statements(source_bytes, span, tree_root, max_middle_lines)
+                if not sub_spans:
+                    sub_spans = _split_byte_span_sliding_window(source, span, max_middle_lines)
+                else:
+                    # Statement split may produce sub-spans still exceeding the limit
+                    # (e.g. a single large method inside a class); apply window fallback
+                    expanded: list[CodeSpan] = []
+                    for sub in sub_spans:
+                        sub_mid = source[sub.start_byte:sub.end_byte]
+                        if max_middle_lines > 0 and sub_mid.count("\n") + 1 > max_middle_lines:
+                            expanded.extend(_split_byte_span_sliding_window(source, sub, max_middle_lines))
+                        else:
+                            expanded.append(sub)
+                    sub_spans = expanded
+
+                for sub in sub_spans:
+                    sub_min_w = 1 if sub.kind.startswith("dev_") else MIN_MIDDLE_WORDS
+                    ex = _make_example_from_byte_span(
+                        source, sub, rel_path, xf_context, max_total_chars, lines,
+                        min_words=sub_min_w, max_middle_lines=max_middle_lines,
+                    )
+                    if ex is not None:
+                        _attach_bm25_and_append(ex)
+            else:
+                ex = _make_example_from_byte_span(
+                    source, span, rel_path, xf_context, max_total_chars, lines,
+                    min_words=min_w, max_middle_lines=max_middle_lines,
+                )
+                if ex is not None:
+                    _attach_bm25_and_append(ex)
+
         elif span.kind == "char_random":
             # Char-level random spans (offsets stored in start_line/end_line)
             fake_byte_span = CodeSpan(
@@ -273,22 +450,17 @@ def generate_fim_examples(
             )
             ex = _make_example_from_byte_span(
                 source, fake_byte_span, rel_path, xf_context, max_total_chars, lines,
+                max_middle_lines=max_middle_lines,
             )
+            if ex is not None:
+                _attach_bm25_and_append(ex)
         else:
             # Line-level spans (regex fallback)
             ex = _make_example_from_line_span(
                 source, span, rel_path, xf_context, max_total_chars,
                 max_middle_lines, min_middle_lines, lines,
             )
-
-        if ex is not None:
-            # Add cached per-file BM25 context if available
-            if bm25_file_ctx:
-                combined = bm25_file_ctx + ex.cross_file_context
-                total = len(ex.prefix) + len(ex.middle) + len(ex.suffix) + len(combined)
-                if total <= max_total_chars:
-                    ex.cross_file_context = combined
-
-            examples.append(ex)
+            if ex is not None:
+                _attach_bm25_and_append(ex)
 
     return examples

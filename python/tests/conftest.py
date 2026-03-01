@@ -223,6 +223,36 @@ class UserService
 """
 
 
+@pytest.fixture
+def large_function_php():
+    """PHP class with a 50-line function body — for testing oversized span splitting."""
+    body_lines = []
+    for i in range(1, 51):
+        body_lines.append(f"        $result_{i} = $this->process({i});")
+    body = "\n".join(body_lines)
+    return f"""\
+<?php
+
+namespace App\\Services;
+
+class DataProcessor
+{{
+    private array $data;
+
+    public function processAll(): array
+    {{
+{body}
+        return $result_50;
+    }}
+
+    public function reset(): void
+    {{
+        $this->data = [];
+    }}
+}}
+"""
+
+
 def make_example(
     prefix="<?php\n\nfunction foo() {\n",
     middle="    return 42;\n",
