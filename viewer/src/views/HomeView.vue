@@ -57,7 +57,7 @@ async function openDataset() {
     recent.unshift(path.value.trim())
     recentPaths.value = recent.slice(0, 5)
     localStorage.setItem('fim-viewer-recent', JSON.stringify(recentPaths.value))
-    router.push('/dataset')
+    router.push({ path: '/dataset', query: { path: path.value.trim() } })
   } catch (err) {
     error.value = err.message
   } finally {

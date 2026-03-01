@@ -44,7 +44,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { api } from '../api.js'
 import FilterPanel from '../components/FilterPanel.vue'
 import DatasetOverview from '../components/DatasetOverview.vue'
@@ -53,6 +53,7 @@ import ExampleList from '../components/ExampleList.vue'
 import Pagination from '../components/Pagination.vue'
 
 const router = useRouter()
+const route = useRoute()
 const metadata = ref(null)
 const files = ref([])
 const activeFile = ref('train.jsonl')
@@ -68,13 +69,26 @@ const searchQuery = ref('')
 const pendingMoves = ref({}) // keyed by "sourceFile:index"
 const pendingCount = computed(() => Object.keys(pendingMoves.value).length)
 
-onMounted(async () => {
+async function initDataset(queryPath) {
   try {
-    const status = await api.status()
+    let status = await api.status()
+
+    // Open the requested dataset if not open or if a different one is requested
+    if (queryPath && (!status.open || status.path !== queryPath)) {
+      await api.open(queryPath)
+      status = await api.status()
+    }
+
     if (!status.open) {
       router.push('/')
       return
     }
+
+    // Ensure the URL reflects the open dataset path
+    if (status.path && status.path !== queryPath) {
+      router.replace({ path: '/dataset', query: { path: status.path } })
+    }
+
     metadata.value = await api.metadata()
     // Try to get file list from status (includes reject.jsonl), fall back to metadata
     if (status.files) {
@@ -84,11 +98,23 @@ onMounted(async () => {
       if (metadata.value.train_examples) files.value.push({ name: 'train.jsonl', examples: metadata.value.train_examples })
       if (metadata.value.val_examples) files.value.push({ name: 'val.jsonl', examples: metadata.value.val_examples })
     }
+    // Reset view state for new dataset
+    activeFile.value = 'train.jsonl'
+    page.value = 1
+    searchQuery.value = ''
+    Object.assign(filters, { span_kinds: [], filepath: '', complexity_min: null, complexity_max: null })
+    pendingMoves.value = {}
     await loadFacets()
     await loadExamples()
   } catch {
     router.push('/')
   }
+}
+
+onMounted(() => initDataset(route.query.path))
+
+watch(() => route.query.path, (newPath, oldPath) => {
+  if (newPath !== oldPath) initDataset(newPath)
 })
 
 async function loadFacets() {
