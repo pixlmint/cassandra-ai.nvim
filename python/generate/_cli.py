@@ -8,8 +8,15 @@ from dataclasses import asdict
 from pathlib import Path
 from tqdm import tqdm
 
-from fim.deps import HAS_TREE_SITTER, HAS_BM25
+from fim.deps import HAS_TREE_SITTER, HAS_BM25, HAS_TRANSFORMERS, AutoTokenizer
 from fim.types import FIMConfig, FIM_CONFIGS, FIMExample
+
+TOKENIZER_NAMES = {
+    "qwen2.5-coder": "Qwen/Qwen2.5-Coder-3B",
+    "granite-code":  "ibm-granite/granite-3b-code-base",
+    "codellama":     "codellama/CodeLlama-7b-hf",
+    "starcoder":     "bigcode/starcoder2-3b",
+}
 from fim.discovery import find_files
 from fim.language import get_language, registered_languages
 from fim.bm25 import build_bm25_index
@@ -66,6 +73,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-seq-len", type=int, default=0,
                         help="Token budget for training (0=disabled). Truncates prefix/suffix "
                              "to fit; middle is never truncated. (suggested: 1536)")
+    parser.add_argument("--tokenizer", type=str, default=None,
+                        help="HuggingFace tokenizer name for accurate token counting. "
+                             "Auto-populated from --base-model when transformers is installed. "
+                             'Pass "" to disable and use character heuristic.')
     parser.add_argument("--val-split", type=float, default=0.1,
                         help="Validation split ratio (default: 0.1)")
     parser.add_argument("--seed", type=int, default=42,
@@ -200,14 +211,14 @@ def apply_postprocessing(args, all_examples):
     return all_examples, rejected_examples, rejected_by_kind
 
 
-def preview_examples(examples, count, fim_config, max_seq_len=0):
+def preview_examples(examples, count, fim_config, max_seq_len=0, tokenizer=None):
     """Display a preview of generated examples."""
     print(f"\n{'=' * 60}")
     print(f"PREVIEW ({count} examples)")
     print(f"{'=' * 60}")
     for ex in random.sample(examples, min(count, len(examples))):
         if max_seq_len > 0:
-            ex = ex.truncate_to_token_budget(fim_config, max_seq_len)
+            ex = ex.truncate_to_token_budget(fim_config, max_seq_len, tokenizer=tokenizer)
         formatted = fim_config.format_psm(
             ex.cross_file_context + ex.prefix, ex.middle, ex.suffix
         )
@@ -223,7 +234,7 @@ def preview_examples(examples, count, fim_config, max_seq_len=0):
         print(f"Total formatted length: {len(formatted)} chars")
 
 
-def write_output(args, all_examples, fim_config, use_ast, rejected_examples, source_files, lang_config, rejected_by_kind=None, max_seq_len=0):
+def write_output(args, all_examples, fim_config, use_ast, rejected_examples, source_files, lang_config, rejected_by_kind=None, max_seq_len=0, tokenizer=None):
     """Split into train/val and write JSONL + metadata files. Also writes reject.jsonl if there are rejected examples."""
     # Shuffle and split (unless curriculum mode, which keeps the sort order)
     if not args.curriculum:
@@ -247,14 +258,14 @@ def write_output(args, all_examples, fim_config, use_ast, rejected_examples, sou
     for path, examples in [(train_path, train_examples), (val_path, val_examples)]:
         with open(path, "w") as f:
             for ex in examples:
-                json.dump(ex.to_training_format(fim_config, max_seq_len=max_seq_len), f)
+                json.dump(ex.to_training_format(fim_config, max_seq_len=max_seq_len, tokenizer=tokenizer), f)
                 f.write("\n")
         print(f"  Wrote {path} ({len(examples)} examples)")
 
     if rejected_examples:
         with open(reject_path, "w") as f:
             for ex in rejected_examples:
-                json.dump(ex.to_training_format(fim_config, max_seq_len=max_seq_len), f)
+                json.dump(ex.to_training_format(fim_config, max_seq_len=max_seq_len, tokenizer=tokenizer), f)
                 f.write("\n")
         print(f"  Wrote {reject_path} ({len(rejected_examples)} examples)")
 
@@ -280,6 +291,7 @@ def write_output(args, all_examples, fim_config, use_ast, rejected_examples, sou
         "max_middle_lines": args.max_middle_lines,
         "max_total_chars": args.max_total_chars,
         "max_seq_len": max_seq_len,
+        "tokenizer": getattr(tokenizer, 'name_or_path', None) if tokenizer else None,
         "train_examples": len(train_examples),
         "val_examples": len(val_examples),
         "total_files": len(source_files),
@@ -308,6 +320,23 @@ def main():
 
     random.seed(args.seed)
     fim_config = FIM_CONFIGS[args.base_model]
+
+    # Load tokenizer for accurate token counting
+    tokenizer = None
+    if args.max_seq_len > 0:
+        # Resolve tokenizer name: explicit --tokenizer wins, else auto from --base-model
+        tokenizer_name = args.tokenizer
+        if tokenizer_name is None:
+            tokenizer_name = TOKENIZER_NAMES.get(args.base_model)
+        if tokenizer_name == "":
+            tokenizer_name = None  # User explicitly disabled with --tokenizer ""
+
+        if tokenizer_name and HAS_TRANSFORMERS:
+            print(f"Loading tokenizer: {tokenizer_name}")
+            tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        elif tokenizer_name and not HAS_TRANSFORMERS:
+            print("WARNING: transformers not installed — falling back to character-length "
+                  "heuristic for token counting. Install with: pip install transformers")
 
     # Auto-lower max_total_chars when --max-seq-len is set and --max-total-chars wasn't explicit
     if args.max_seq_len > 0:
@@ -340,7 +369,7 @@ def main():
     print_dataset_stats(all_examples, rejected=len(rejected_examples), rejected_by_kind=rejected_by_kind)
 
     if args.preview > 0:
-        preview_examples(all_examples, args.preview, fim_config, max_seq_len=args.max_seq_len)
+        preview_examples(all_examples, args.preview, fim_config, max_seq_len=args.max_seq_len, tokenizer=tokenizer)
         return
 
-    write_output(args, all_examples, fim_config, use_ast, rejected_examples, source_files, lang_config, rejected_by_kind, max_seq_len=args.max_seq_len)
+    write_output(args, all_examples, fim_config, use_ast, rejected_examples, source_files, lang_config, rejected_by_kind, max_seq_len=args.max_seq_len, tokenizer=tokenizer)

@@ -15,3 +15,11 @@ try:
 except ImportError:
     HAS_BM25 = False
     BM25Okapi = None
+
+# Transformers for accurate token counting (replaces CHARS_PER_TOKEN heuristic)
+try:
+    from transformers import AutoTokenizer
+    HAS_TRANSFORMERS = True
+except ImportError:
+    HAS_TRANSFORMERS = False
+    AutoTokenizer = None

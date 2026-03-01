@@ -1,8 +1,18 @@
 """Tests for FIMConfig, FIMExample, and CodeSpan — documents the exact JSONL
 format consumed by training frameworks."""
 
+import pytest
+
 from fim.types import FIM_CONFIGS, CHARS_PER_TOKEN, CodeSpan
 from tests.conftest import make_example
+
+
+class MockTokenizer:
+    """1 char = 1 token for predictable test assertions."""
+    name_or_path = "mock-tokenizer"
+
+    def encode(self, text, add_special_tokens=False):
+        return list(range(len(text)))
 
 
 class TestFIMConfig:
@@ -154,3 +164,69 @@ class TestTruncateToTokenBudget:
         text = result["text"]
         expected_tail = f"{qwen_config.middle_tok}completion_code();{qwen_config.eot_tok}"
         assert text.endswith(expected_tail), f"text must end with middle+eot, got: ...{text[-80:]}"
+
+
+class TestTruncateWithTokenizer:
+    """Token-accurate truncation using a real (mock) tokenizer."""
+
+    @pytest.fixture
+    def tok(self):
+        return MockTokenizer()
+
+    def test_middle_preserved_with_tokenizer(self, qwen_config, tok):
+        """Middle section is never modified by tokenizer-based truncation."""
+        middle = "return $this->repo->findAll();\n"
+        ex = make_example(prefix="A" * 500, middle=middle, suffix="B" * 500)
+        truncated = ex.truncate_to_token_budget(qwen_config, max_seq_len=100, tokenizer=tok)
+        assert truncated.middle == middle
+
+    def test_output_fits_within_max_seq_len(self, qwen_config, tok):
+        """With MockTokenizer (1 char = 1 token), total tokens must not exceed max_seq_len."""
+        max_seq = 200
+        ex = make_example(prefix="A" * 500, middle="M" * 50, suffix="B" * 500)
+        truncated = ex.truncate_to_token_budget(qwen_config, max_seq_len=max_seq, tokenizer=tok)
+        # Count tokens: prefix + suffix + middle + 4 special tokens
+        total = (
+            len(tok.encode(truncated.cross_file_context + truncated.prefix))
+            + len(tok.encode(truncated.middle))
+            + len(tok.encode(truncated.suffix))
+            + 4  # special tokens
+        )
+        assert total <= max_seq, f"Total tokens {total} exceeds max_seq_len {max_seq}"
+
+    def test_degenerate_when_middle_exceeds_budget(self, qwen_config, tok):
+        """When middle alone exceeds the token budget, prefix/suffix/context are emptied."""
+        # max_seq_len=50 with 4 special tokens leaves 46 for content;
+        # middle is 100 chars = 100 tokens with MockTokenizer
+        ex = make_example(prefix="A" * 20, middle="M" * 100, suffix="B" * 20)
+        truncated = ex.truncate_to_token_budget(qwen_config, max_seq_len=50, tokenizer=tok)
+        assert truncated.prefix == ''
+        assert truncated.suffix == ''
+        assert truncated.cross_file_context == ''
+        assert truncated.middle == "M" * 100
+
+    def test_noop_when_within_budget(self, qwen_config, tok):
+        """Small examples that already fit are returned unchanged (same object)."""
+        ex = make_example(prefix="pre", middle="mid", suffix="suf")
+        truncated = ex.truncate_to_token_budget(qwen_config, max_seq_len=1536, tokenizer=tok)
+        assert truncated is ex
+
+    def test_cross_file_context_trimmed_first(self, qwen_config, tok):
+        """Cross-file context (least local) is trimmed before local prefix."""
+        cross = "X" * 300
+        prefix = "Y" * 20
+        ex = make_example(prefix=prefix, middle="M" * 10, suffix="S" * 10, cross_file_context=cross)
+        truncated = ex.truncate_to_token_budget(qwen_config, max_seq_len=100, tokenizer=tok)
+        # Local prefix should survive fully or nearly so
+        assert len(truncated.prefix) >= len(prefix) - 5
+        # Cross-file context should be significantly reduced
+        assert len(truncated.cross_file_context) < len(cross)
+
+    def test_to_training_format_passes_tokenizer(self, qwen_config, tok):
+        """to_training_format threads tokenizer through to truncation."""
+        max_seq = 100
+        ex = make_example(prefix="A" * 500, middle="M" * 20, suffix="B" * 500)
+        result = ex.to_training_format(qwen_config, max_seq_len=max_seq, tokenizer=tok)
+        # Verify the output was actually truncated (not the full 500+500 chars)
+        assert len(result["prefix"]) < 500
+        assert len(result["suffix"]) < 500
