@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict
 
-CHARS_PER_TOKEN = 4  # Conservative heuristic (also used in crossfile.py, bm25.py)
+CHARS_PER_TOKEN = 3  # Empirically ~2.5-3.5 for code tokenizers (Qwen2.5-Coder, etc.)
 
 
 @dataclass

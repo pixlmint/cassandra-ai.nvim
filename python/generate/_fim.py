@@ -392,12 +392,21 @@ def generate_fim_examples(
     # --- Convert spans to FIMExamples ---
     source_bytes = source.encode("utf-8")
 
+    # Joint context budget: cap combined cross-file + BM25 context to 1024 tokens
+    # to prevent context from overwhelming the prefix/suffix/middle content.
+    from fim.types import CHARS_PER_TOKEN
+    max_context_chars = 1024 * CHARS_PER_TOKEN
+
     def _attach_bm25_and_append(ex: FIMExample):
         if bm25_file_ctx:
             combined = bm25_file_ctx + ex.cross_file_context
+            if len(combined) > max_context_chars:
+                combined = combined[:max_context_chars]
             total = len(ex.prefix) + len(ex.middle) + len(ex.suffix) + len(combined)
             if total <= max_total_chars:
                 ex.cross_file_context = combined
+        elif len(ex.cross_file_context) > max_context_chars:
+            ex.cross_file_context = ex.cross_file_context[:max_context_chars]
         examples.append(ex)
 
     for span in all_spans:
