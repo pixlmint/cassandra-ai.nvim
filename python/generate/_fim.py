@@ -107,14 +107,37 @@ def _make_example_from_byte_span(
 
     total = len(prefix) + len(middle) + len(suffix) + len(xf_context)
     if total > max_total_chars:
-        max_ctx = max_total_chars // 3
-        if len(prefix) > max_ctx:
-            prefix = prefix[-max_ctx:]
-        if len(suffix) > max_ctx:
-            suffix = suffix[:max_ctx]
+        # Budget for prefix+suffix after reserving space for middle and cross-file context
+        remaining = max_total_chars - len(middle) - len(xf_context)
+        if remaining > 0:
+            ps_total = len(prefix) + len(suffix)
+            if ps_total > remaining:
+                # Proportional trim
+                p_budget = int(remaining * len(prefix) / ps_total) if ps_total else remaining // 2
+                s_budget = remaining - p_budget
+                if len(prefix) > p_budget:
+                    prefix = prefix[-p_budget:]
+                if len(suffix) > s_budget:
+                    suffix = suffix[:s_budget]
+
         total = len(prefix) + len(middle) + len(suffix) + len(xf_context)
         if total > max_total_chars:
-            return None
+            # Still over — drop cross-file context (least-local), then retry
+            xf_context = ""
+            remaining = max_total_chars - len(middle)
+            if remaining <= 0:
+                return None
+            ps_total = len(prefix) + len(suffix)
+            if ps_total > remaining:
+                p_budget = int(remaining * len(prefix) / ps_total) if ps_total else remaining // 2
+                s_budget = remaining - p_budget
+                if len(prefix) > p_budget:
+                    prefix = prefix[-p_budget:]
+                if len(suffix) > s_budget:
+                    suffix = suffix[:s_budget]
+            total = len(prefix) + len(middle) + len(suffix)
+            if total > max_total_chars:
+                return None
 
     return FIMExample(
         filepath=rel_path,
