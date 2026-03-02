@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
 """
-filter_dataset.py — Remove oversized samples from a FIM dataset.
+filter_dataset.py — Filter samples from a FIM dataset by span_kind and/or token count.
 
-Uses the same token-length logic as analyze_dataset.py: either a real
-tokenizer (exact counts) or a character-per-token heuristic (fast estimate).
+Supports filtering by:
+  - span_kind: include or exclude samples by their span_kind field
+  - token count: remove oversized samples using a real tokenizer or char estimate
 
 USAGE
 =====
-    # Fast char-estimate filter (no tokenizer needed)
-    python filter_dataset.py --dataset dataset/train.jsonl --output dataset/train_filtered.jsonl
+    # Include only specific span kinds
+    python filter_dataset.py --dataset dataset/train.jsonl \\
+        --include-span-kind ast_single_node ast_aligned_span --dry-run
+
+    # Exclude char_random spans, then also filter by token count
+    python filter_dataset.py --dataset dataset/train.jsonl \\
+        --exclude-span-kind char_random --dry-run
+
+    # Token count filter only (existing behavior)
+    python filter_dataset.py --dataset dataset/train.jsonl --dry-run
 
     # Exact tokenizer filter
     python filter_dataset.py --dataset dataset/train.jsonl \\
         --output dataset/train_filtered.jsonl \\
         --tokenizer Qwen/Qwen2.5-Coder-3B
-
-    # Dry run (show what would be removed without writing)
-    python filter_dataset.py --dataset dataset/train.jsonl \\
-        --tokenizer Qwen/Qwen2.5-Coder-3B \\
-        --dry-run
 """
 
 import argparse
@@ -38,6 +42,19 @@ def load_dataset(path: Path) -> list[dict]:
                 except json.JSONDecodeError:
                     print(f"  Warning: skipping malformed line {i + 1}", file=sys.stderr)
     return examples
+
+
+def filter_by_span_kind(examples, include=None, exclude=None):
+    kept, removed = [], []
+    for lineno, ex in examples:
+        kind = ex.get("span_kind", "")
+        if include is not None and kind not in include:
+            removed.append((lineno, ex, kind))
+        elif exclude is not None and kind in exclude:
+            removed.append((lineno, ex, kind))
+        else:
+            kept.append((lineno, ex))
+    return kept, removed
 
 
 def filter_by_chars(examples: list[tuple[int, dict]], max_seq_len: int, chars_per_token: float):
@@ -81,6 +98,13 @@ def main():
     parser.add_argument("--dataset", required=True, type=Path, help="Input JSONL dataset file")
     parser.add_argument("--output", type=Path, default=None,
                         help="Output JSONL path. Defaults to <dataset>_filtered.jsonl alongside the input file.")
+
+    span_group = parser.add_mutually_exclusive_group()
+    span_group.add_argument("--include-span-kind", nargs="+", metavar="KIND",
+                            help="Keep only samples whose span_kind is in this list")
+    span_group.add_argument("--exclude-span-kind", nargs="+", metavar="KIND",
+                            help="Remove samples whose span_kind is in this list")
+
     parser.add_argument("--tokenizer", type=str, default=None,
                         help="HuggingFace tokenizer name/path (e.g. Qwen/Qwen2.5-Coder-3B). "
                              "If omitted, uses character-level estimates.")
@@ -103,8 +127,34 @@ def main():
 
     print(f"Loading dataset: {args.dataset}")
     examples = load_dataset(args.dataset)
-    print(f"Loaded {len(examples)} examples")
+    n_total = len(examples)
+    print(f"Loaded {n_total} examples")
 
+    # --- Stage 1: span_kind filtering ---
+    include_kinds = set(args.include_span_kind) if args.include_span_kind else None
+    exclude_kinds = set(args.exclude_span_kind) if args.exclude_span_kind else None
+
+    if include_kinds or exclude_kinds:
+        if include_kinds:
+            label = f"include span_kind: {', '.join(sorted(include_kinds))}"
+        else:
+            label = f"exclude span_kind: {', '.join(sorted(exclude_kinds))}"
+        print(f"\nFiltering by {label}...")
+        remaining, span_removed = filter_by_span_kind(examples, include=include_kinds, exclude=exclude_kinds)
+        n_span_removed = len(span_removed)
+        n_after_span = len(remaining)
+        print(f"  Kept:    {n_after_span}  ({100 * n_after_span / n_total:.1f}%)")
+        print(f"  Removed: {n_span_removed}  ({100 * n_span_removed / n_total:.1f}%)")
+        if span_removed and args.show_removed > 0:
+            from collections import Counter
+            kind_counts = Counter(kind for _, _, kind in span_removed)
+            print(f"  Removed by kind:")
+            for kind, count in kind_counts.most_common():
+                print(f"    {kind}: {count}")
+    else:
+        remaining = examples
+
+    # --- Stage 2: token-count filtering ---
     if args.tokenizer:
         try:
             from transformers import AutoTokenizer
@@ -112,32 +162,35 @@ def main():
             print("\nERROR: transformers not installed. Install with:", file=sys.stderr)
             print("  pip install transformers", file=sys.stderr)
             sys.exit(1)
-        print(f"Loading tokenizer: {args.tokenizer}")
+        print(f"\nLoading tokenizer: {args.tokenizer}")
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
         print(f"Filtering by exact token count (max {args.max_seq_len})...")
-        kept, removed = filter_by_tokenizer(examples, tokenizer, args.max_seq_len)
+        kept, tok_removed = filter_by_tokenizer(remaining, tokenizer, args.max_seq_len)
         mode = f"tokenizer ({args.tokenizer})"
     else:
-        print(f"Filtering by estimated token count "
+        print(f"\nFiltering by estimated token count "
               f"(max {args.max_seq_len}, chars_per_token={args.chars_per_token})...")
-        kept, removed = filter_by_chars(examples, args.max_seq_len, args.chars_per_token)
+        kept, tok_removed = filter_by_chars(remaining, args.max_seq_len, args.chars_per_token)
         mode = f"char estimate (÷{args.chars_per_token})"
 
-    n_total = len(examples)
-    n_removed = len(removed)
+    n_remaining = len(remaining)
+    n_tok_removed = len(tok_removed)
     n_kept = len(kept)
 
-    print(f"\nResults ({mode}):")
-    print(f"  Total:   {n_total}")
-    print(f"  Kept:    {n_kept}  ({100 * n_kept / n_total:.1f}%)")
-    print(f"  Removed: {n_removed}  ({100 * n_removed / n_total:.1f}%)")
+    print(f"\nToken filter results ({mode}):")
+    print(f"  Input:   {n_remaining}")
+    print(f"  Kept:    {n_kept}  ({100 * n_kept / n_remaining:.1f}%)" if n_remaining else f"  Kept:    0")
+    print(f"  Removed: {n_tok_removed}  ({100 * n_tok_removed / n_remaining:.1f}%)" if n_remaining else f"  Removed: 0")
 
-    if removed and args.show_removed > 0:
-        worst = sorted(removed, key=lambda v: v[2], reverse=True)
+    if tok_removed and args.show_removed > 0:
+        worst = sorted(tok_removed, key=lambda v: v[2], reverse=True)
         show = worst[: args.show_removed]
         print(f"\n  Longest removed samples (up to {args.show_removed}):")
         for lineno, _, tok_count in show:
             print(f"    line {lineno}: {tok_count} tokens (+{tok_count - args.max_seq_len} over limit)")
+
+    # --- Summary ---
+    print(f"\nFinal: {n_kept}/{n_total} examples kept ({100 * n_kept / n_total:.1f}%)")
 
     if args.dry_run:
         print("\nDry run — no output written.")
