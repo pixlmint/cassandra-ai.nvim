@@ -83,7 +83,7 @@ def _resolve_lang_config(lang_config):
 
 
 def _make_example_from_byte_span(
-    source: str,
+    source_bytes: bytes,
     span: CodeSpan,
     rel_path: str,
     xf_context: str,
@@ -94,9 +94,9 @@ def _make_example_from_byte_span(
 ) -> FIMExample | None:
     """Create a FIMExample from a span with byte offsets."""
     sb, eb = span.start_byte, span.end_byte
-    prefix = source[:sb]
-    middle = source[sb:eb]
-    suffix = source[eb:]
+    prefix = source_bytes[:sb].decode("utf-8", errors="replace")
+    middle = source_bytes[sb:eb].decode("utf-8", errors="replace")
+    suffix = source_bytes[eb:].decode("utf-8", errors="replace")
 
     if not middle.strip() or len(middle.split()) < min_words:
         return None
@@ -225,7 +225,7 @@ def _split_byte_span_by_statements(
 
 
 def _split_byte_span_sliding_window(
-    source: str,
+    source_bytes: bytes,
     span: CodeSpan,
     max_middle_lines: int,
     stride: int = 0,
@@ -238,8 +238,8 @@ def _split_byte_span_sliding_window(
     if stride <= 0:
         stride = max(1, max_middle_lines // 2)
 
-    middle = source[span.start_byte:span.end_byte]
-    mid_lines = middle.split("\n")
+    middle = source_bytes[span.start_byte:span.end_byte]
+    mid_lines = middle.split(b"\n")
 
     if len(mid_lines) <= max_middle_lines:
         return [span]
@@ -249,7 +249,7 @@ def _split_byte_span_sliding_window(
     offset = 0
     for line in mid_lines:
         line_byte_offsets.append(offset)
-        offset += len(line.encode("utf-8")) + 1  # +1 for newline
+        offset += len(line) + 1  # +1 for newline
 
     sub_spans: list[CodeSpan] = []
     i = 0
@@ -264,8 +264,8 @@ def _split_byte_span_sliding_window(
             window_end = span.end_byte
 
         if window_end > window_start:
-            start_line = source[:window_start].count("\n")
-            end_line = source[:window_end].count("\n")
+            start_line = source_bytes[:window_start].count(b"\n")
+            end_line = source_bytes[:window_end].count(b"\n")
             sub_spans.append(CodeSpan(
                 kind=span.kind + "_window",
                 start_line=start_line,
@@ -436,8 +436,8 @@ def generate_fim_examples(
         if span.start_byte >= 0 and span.end_byte > span.start_byte:
             # Byte-offset spans (AST, dev-behavior)
             min_w = 1 if span.kind.startswith("dev_") else MIN_MIDDLE_WORDS
-            middle = source[span.start_byte:span.end_byte]
-            mid_lines = middle.count("\n") + 1
+            middle = source_bytes[span.start_byte:span.end_byte]
+            mid_lines = middle.count(b"\n") + 1
 
             if max_middle_lines > 0 and mid_lines > max_middle_lines:
                 # Oversized span — try statement-aware split, then sliding window
@@ -445,15 +445,15 @@ def generate_fim_examples(
                 if tree_root is not None:
                     sub_spans = _split_byte_span_by_statements(source_bytes, span, tree_root, max_middle_lines)
                 if not sub_spans:
-                    sub_spans = _split_byte_span_sliding_window(source, span, max_middle_lines)
+                    sub_spans = _split_byte_span_sliding_window(source_bytes, span, max_middle_lines)
                 else:
                     # Statement split may produce sub-spans still exceeding the limit
                     # (e.g. a single large method inside a class); apply window fallback
                     expanded: list[CodeSpan] = []
                     for sub in sub_spans:
-                        sub_mid = source[sub.start_byte:sub.end_byte]
-                        if max_middle_lines > 0 and sub_mid.count("\n") + 1 > max_middle_lines:
-                            expanded.extend(_split_byte_span_sliding_window(source, sub, max_middle_lines))
+                        sub_mid = source_bytes[sub.start_byte:sub.end_byte]
+                        if max_middle_lines > 0 and sub_mid.count(b"\n") + 1 > max_middle_lines:
+                            expanded.extend(_split_byte_span_sliding_window(source_bytes, sub, max_middle_lines))
                         else:
                             expanded.append(sub)
                     sub_spans = expanded
@@ -461,27 +461,32 @@ def generate_fim_examples(
                 for sub in sub_spans:
                     sub_min_w = 1 if sub.kind.startswith("dev_") else MIN_MIDDLE_WORDS
                     ex = _make_example_from_byte_span(
-                        source, sub, rel_path, xf_context, max_total_chars, lines,
+                        source_bytes, sub, rel_path, xf_context, max_total_chars, lines,
                         min_words=sub_min_w, max_middle_lines=max_middle_lines,
                     )
                     if ex is not None:
                         _attach_bm25_and_append(ex)
             else:
                 ex = _make_example_from_byte_span(
-                    source, span, rel_path, xf_context, max_total_chars, lines,
+                    source_bytes, span, rel_path, xf_context, max_total_chars, lines,
                     min_words=min_w, max_middle_lines=max_middle_lines,
                 )
                 if ex is not None:
                     _attach_bm25_and_append(ex)
 
         elif span.kind == "char_random":
-            # Char-level random spans (offsets stored in start_line/end_line)
+            # Char-level random spans (offsets stored in start_line/end_line as char offsets)
+            # Convert char offsets to byte offsets for consistent handling
+            char_start = span.start_line
+            char_end = span.end_line
+            byte_start = len(source[:char_start].encode("utf-8"))
+            byte_end = len(source[:char_end].encode("utf-8"))
             fake_byte_span = CodeSpan(
                 kind=span.kind, start_line=span.start_line, end_line=span.end_line,
-                name=span.name, start_byte=span.start_line, end_byte=span.end_line,
+                name=span.name, start_byte=byte_start, end_byte=byte_end,
             )
             ex = _make_example_from_byte_span(
-                source, fake_byte_span, rel_path, xf_context, max_total_chars, lines,
+                source_bytes, fake_byte_span, rel_path, xf_context, max_total_chars, lines,
                 max_middle_lines=max_middle_lines,
             )
             if ex is not None:

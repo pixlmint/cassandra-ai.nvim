@@ -166,24 +166,26 @@ class TestSlidingWindow:
         # 20 lines of content
         lines = [f"line {i}" for i in range(20)]
         source = "\n".join(lines)
+        source_bytes = source.encode("utf-8")
         span = CodeSpan(
             kind="ast_single_node", start_line=0, end_line=19,
-            start_byte=0, end_byte=len(source),
+            start_byte=0, end_byte=len(source_bytes),
         )
-        sub_spans = _split_byte_span_sliding_window(source, span, max_middle_lines=10)
+        sub_spans = _split_byte_span_sliding_window(source_bytes, span, max_middle_lines=10)
         assert len(sub_spans) >= 2
         for sub in sub_spans:
-            middle = source[sub.start_byte:sub.end_byte]
-            assert middle.count("\n") + 1 <= 10
+            middle = source_bytes[sub.start_byte:sub.end_byte]
+            assert middle.count(b"\n") + 1 <= 10
             assert sub.kind == "ast_single_node_window"
 
     def test_small_span_unchanged(self):
         source = "line 1\nline 2\nline 3"
+        source_bytes = source.encode("utf-8")
         span = CodeSpan(
             kind="dev_bracket_content", start_line=0, end_line=2,
-            start_byte=0, end_byte=len(source),
+            start_byte=0, end_byte=len(source_bytes),
         )
-        sub_spans = _split_byte_span_sliding_window(source, span, max_middle_lines=10)
+        sub_spans = _split_byte_span_sliding_window(source_bytes, span, max_middle_lines=10)
         assert len(sub_spans) == 1
         # Small span keeps original kind (no suffix)
         assert sub_spans[0].kind == "dev_bracket_content"

@@ -71,8 +71,17 @@ def generate_incomplete_line_spans(
     """
     lc = _resolve_lang_config(lang_config)
     lines = source.split("\n")
+    source_bytes = source.encode("utf-8")
     spans = []
     target_count = max(1, len(lines) // 15)
+
+    # Precompute byte offset of each line start for O(1) lookup
+    byte_lines = source_bytes.split(b"\n")
+    line_byte_starts = []
+    pos = 0
+    for bl in byte_lines:
+        line_byte_starts.append(pos)
+        pos += len(bl) + 1
 
     # Sub-strategy 1: Random intra-line (half)
     for _ in range(target_count // 2 + 1):
@@ -92,9 +101,9 @@ def generate_incomplete_line_spans(
             continue
         offset = random.randint(3, len(stripped) - 1)
 
-        line_start = sum(len(l) + 1 for l in lines[:line_idx])
-        cut_byte = line_start + indent_len + offset
-        line_end_byte = line_start + len(line)
+        # Convert char position to byte offset within the line
+        cut_byte = line_byte_starts[line_idx] + len(line[:indent_len + offset].encode("utf-8"))
+        line_end_byte = line_byte_starts[line_idx] + len(byte_lines[line_idx])
 
         if line_end_byte - cut_byte < 3:
             continue
@@ -108,7 +117,6 @@ def generate_incomplete_line_spans(
         ))
 
     # Sub-strategy 2: Syntax-aware triggered (half)
-    source_bytes = source.encode("utf-8") if tree else b""
     trigger_tokens = lc.trigger_tokens
     for _ in range(target_count // 2 + 1):
         trigger_candidates = []
@@ -127,14 +135,14 @@ def generate_incomplete_line_spans(
         line_idx, line, tok, tok_pos_in_stripped = random.choice(trigger_candidates)
         indent_len = len(line) - len(line.lstrip())
         cut_in_line = indent_len + tok_pos_in_stripped + len(tok)
-        line_start = sum(len(l) + 1 for l in lines[:line_idx])
 
-        end_byte = line_start + len(line)
+        # Convert char position to byte offset
+        cut_byte = line_byte_starts[line_idx] + len(line[:cut_in_line].encode("utf-8"))
+        end_byte = line_byte_starts[line_idx] + len(byte_lines[line_idx])
         if tree:
-            cut_byte_abs = line_start + cut_in_line
-            node = _find_deepest_containing(tree, cut_byte_abs, cut_byte_abs + 1)
-            if node and node.end_byte > cut_byte_abs:
-                node_lines = source_bytes[cut_byte_abs:node.end_byte].count(b"\n") + 1
+            node = _find_deepest_containing(tree, cut_byte, cut_byte + 1)
+            if node and node.end_byte > cut_byte:
+                node_lines = source_bytes[cut_byte:node.end_byte].count(b"\n") + 1
                 if node_lines > max_middle_lines:
                     end_byte = _truncate_node_to_statements(
                         node, source_bytes, max_middle_lines,
@@ -142,11 +150,10 @@ def generate_incomplete_line_spans(
                 else:
                     end_byte = node.end_byte
 
-        cut_byte = line_start + cut_in_line
         if end_byte - cut_byte < 3:
             continue
 
-        end_line = source_bytes[:end_byte].count(b"\n") if source_bytes else source[:end_byte].count("\n")
+        end_line = source_bytes[:end_byte].count(b"\n")
         spans.append(CodeSpan(
             kind="dev_incomplete_line",
             start_line=line_idx,
@@ -338,10 +345,6 @@ def generate_doc_comment_spans(
     target_count = max(1, len(source.split("\n")) // 40)
     chosen = random.sample(doc_nodes, min(target_count, len(doc_nodes)))
 
-    def _byte_to_char(byte_offset: int) -> int:
-        """Convert a tree-sitter byte offset to a Python str character offset."""
-        return len(source_bytes[:byte_offset].decode("utf-8", errors="replace"))
-
     for doc_node, func_node in chosen:
         doc_text = source_bytes[doc_node.start_byte:doc_node.end_byte].decode("utf-8", errors="replace")
         doc_lines = doc_text.split("\n")
@@ -357,7 +360,6 @@ def generate_doc_comment_spans(
 
         use_case_b = tag_line_indices and random.random() < 0.4
 
-        # Compute start as a byte offset first, then convert to char offset
         if use_case_b:
             # Case B: split at a random @-tag boundary
             split_line_idx = random.choice(tag_line_indices)
@@ -374,19 +376,14 @@ def generate_doc_comment_spans(
         if end_byte <= start_byte:
             continue
 
-        # Convert byte offsets to character offsets for correct str indexing
-        # (_make_example_from_byte_span indexes into source str, not bytes)
-        start_char = _byte_to_char(start_byte)
-        end_char = _byte_to_char(end_byte)
-
         start_line = source_bytes[:start_byte].count(b"\n")
         end_line = source_bytes[:end_byte].count(b"\n")
         spans.append(CodeSpan(
             kind="dev_doc_comment",
             start_line=start_line,
             end_line=end_line,
-            start_byte=start_char,
-            end_byte=end_char,
+            start_byte=start_byte,
+            end_byte=end_byte,
             skip_quality_filters=frozenset({"comment_only"}),
         ))
 
