@@ -25,9 +25,12 @@ USAGE
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
+
+_IDENT_CHAR_RE = re.compile(r'[a-zA-Z0-9_]')
 
 
 def load_dataset(path: Path) -> list[dict]:
@@ -221,6 +224,86 @@ def fim_structure_check(examples: list[dict]):
         print(f"  All {n} examples have complete FIM token structure")
 
 
+def boundary_alignment_check(examples: list[dict]):
+    """Detect FIM boundary misalignment from byte/char offset mismatch.
+
+    When tree-sitter byte offsets are used as Python str character indices,
+    prefix/middle/suffix boundaries shift in files with multi-byte UTF-8
+    characters.  The telltale sign is boundaries that split identifiers —
+    prefix ends mid-word and middle starts mid-word.
+    """
+    n = len(examples)
+    checked = 0
+    prefix_mid_splits = 0
+    mid_suffix_splits = 0
+    both_split: list[tuple[int, str, str, str, str]] = []
+    by_kind: Counter = Counter()
+
+    for i, ex in enumerate(examples):
+        prefix = ex.get("prefix", "")
+        middle = ex.get("middle", "")
+        suffix = ex.get("suffix", "")
+        kind = ex.get("span_kind", "")
+
+        # char_random intentionally cuts at arbitrary positions
+        if kind.startswith("char_random"):
+            continue
+
+        checked += 1
+
+        pm_split = bool(
+            prefix and middle
+            and _IDENT_CHAR_RE.match(prefix[-1:])
+            and _IDENT_CHAR_RE.match(middle[:1])
+        )
+        ms_split = bool(
+            middle and suffix
+            and _IDENT_CHAR_RE.match(middle[-1:])
+            and _IDENT_CHAR_RE.match(suffix[:1])
+        )
+
+        if pm_split:
+            prefix_mid_splits += 1
+            by_kind[kind] += 1
+        if ms_split:
+            mid_suffix_splits += 1
+        if pm_split and ms_split:
+            both_split.append((i, kind, prefix[-20:], middle[:20], middle[-20:]))
+
+    print(f"\n--- Boundary alignment check (byte/char offset mismatch) ---")
+    if checked == 0:
+        print("  No non-char_random examples to check")
+        return
+
+    pm_pct = 100 * prefix_mid_splits / checked
+    ms_pct = 100 * mid_suffix_splits / checked
+    print(f"  Checked: {checked} examples (excluded {n - checked} char_random)")
+    print(f"  Prefix->middle splits identifier: {prefix_mid_splits}/{checked} ({pm_pct:.1f}%)")
+    print(f"  Middle->suffix splits identifier: {mid_suffix_splits}/{checked} ({ms_pct:.1f}%)")
+
+    if by_kind:
+        print(f"\n  Split-identifier rate by span kind (prefix->middle):")
+        for kind, count in by_kind.most_common():
+            print(f"    {kind}: {count}")
+
+    if pm_pct > 20:
+        print(f"\n  WARNING: {pm_pct:.0f}% of examples have split-identifier boundaries.")
+        print(f"  This strongly suggests the dataset was generated with the byte/char")
+        print(f"  offset mismatch bug. Regenerate with the fixed generator.")
+    elif pm_pct > 5:
+        print(f"\n  NOTE: {pm_pct:.0f}% split-identifier rate is elevated. Some span types")
+        print(f"  (e.g. dev_incomplete_line) can legitimately split identifiers, but")
+        print(f"  rates above ~5% may indicate partial byte/char corruption.")
+    else:
+        print(f"\n  Boundary alignment looks healthy.")
+
+    if both_split:
+        show = both_split[:5]
+        print(f"\n  Examples with both boundaries splitting identifiers ({len(both_split)} total):")
+        for idx, kind, ptail, mhead, mtail in show:
+            print(f"    #{idx} [{kind}]  ...{repr(ptail)} | {repr(mhead)}...")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Analyze FIM dataset quality and token distribution",
@@ -248,6 +331,7 @@ def main():
     char_analysis(examples, args.max_seq_len, args.chars_per_token)
     fim_structure_check(examples)
     context_analysis(examples)
+    boundary_alignment_check(examples)
 
     # Run tokenizer analysis if requested
     if args.tokenizer:
