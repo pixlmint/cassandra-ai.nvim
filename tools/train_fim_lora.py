@@ -92,6 +92,8 @@ def main():
     parser.add_argument("--packing", action="store_true",
                         help="Enable example packing. Off by default for FIM training because "
                              "packing merges unrelated FIM examples, breaking sequence boundaries.")
+    parser.add_argument("--sample-fraction", type=float, default=None,
+                        help="Use only a fraction of training samples (e.g. 0.1 = 10%%)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print config and exit without training")
     args = parser.parse_args()
@@ -116,12 +118,17 @@ def main():
 
     # Quick dataset check
     line_count = sum(1 for _ in open(args.dataset))
-    print(f"  Training examples: {line_count}")
+    effective_count = line_count
+    if args.sample_fraction is not None:
+        effective_count = max(1, int(line_count * args.sample_fraction))
+        print(f"  Training examples: {effective_count} / {line_count} ({args.sample_fraction:.0%} sample)")
+    else:
+        print(f"  Training examples: {line_count}")
     if args.val_dataset:
         val_count = sum(1 for _ in open(args.val_dataset))
         print(f"  Validation examples: {val_count}")
 
-    steps_per_epoch = line_count // (args.batch_size * args.grad_accum)
+    steps_per_epoch = effective_count // (args.batch_size * args.grad_accum)
     total_steps = steps_per_epoch * args.epochs
     print(f"  Steps/epoch:   ~{steps_per_epoch}")
     print(f"  Total steps:   ~{total_steps}")
@@ -223,7 +230,14 @@ def main():
     train_dataset = load_jsonl(args.dataset)
     val_dataset = load_jsonl(args.val_dataset) if args.val_dataset else None
 
-    print(f"  Train: {len(train_dataset)} examples")
+    if args.sample_fraction is not None:
+        full_size = len(train_dataset)
+        n = max(1, int(full_size * args.sample_fraction))
+        train_dataset = train_dataset.shuffle(seed=42).select(range(n))
+        print(f"  Train: {n} / {full_size} examples "
+              f"({args.sample_fraction:.0%} sample)")
+    else:
+        print(f"  Train: {len(train_dataset)} examples")
     if val_dataset:
         print(f"  Val:   {len(val_dataset)} examples")
 
