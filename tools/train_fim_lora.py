@@ -126,7 +126,11 @@ def main():
         print(f"  Training examples: {line_count}")
     if args.val_dataset:
         val_count = sum(1 for _ in open(args.val_dataset))
-        print(f"  Validation examples: {val_count}")
+        if args.sample_fraction is not None:
+            effective_val = max(1, int(val_count * args.sample_fraction))
+            print(f"  Validation examples: {effective_val} / {val_count} ({args.sample_fraction:.0%} sample)")
+        else:
+            print(f"  Validation examples: {val_count}")
 
     steps_per_epoch = effective_count // (args.batch_size * args.grad_accum)
     total_steps = steps_per_epoch * args.epochs
@@ -239,7 +243,14 @@ def main():
     else:
         print(f"  Train: {len(train_dataset)} examples")
     if val_dataset:
-        print(f"  Val:   {len(val_dataset)} examples")
+        if args.sample_fraction is not None:
+            full_val_size = len(val_dataset)
+            n_val = max(1, int(full_val_size * args.sample_fraction))
+            val_dataset = val_dataset.shuffle(seed=42).select(range(n_val))
+            print(f"  Val:   {n_val} / {full_val_size} examples "
+                  f"({args.sample_fraction:.0%} sample)")
+        else:
+            print(f"  Val:   {len(val_dataset)} examples")
 
     # Ensure tokenizer respects our sequence length limit.
     # Without this, SFTTrainer tokenizes at its own default (often 1024+)
