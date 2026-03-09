@@ -107,34 +107,27 @@ def _make_example_from_byte_span(
 
     total = len(prefix) + len(middle) + len(suffix) + len(xf_context)
     if total > max_total_chars:
-        # Budget for prefix+suffix after reserving space for middle and cross-file context
-        remaining = max_total_chars - len(middle) - len(xf_context)
-        if remaining > 0:
-            ps_total = len(prefix) + len(suffix)
-            if ps_total > remaining:
-                # Proportional trim
-                p_budget = int(remaining * len(prefix) / ps_total) if ps_total else remaining // 2
-                s_budget = remaining - p_budget
-                if len(prefix) > p_budget:
-                    prefix = prefix[-p_budget:]
-                if len(suffix) > s_budget:
-                    suffix = suffix[:s_budget]
+        # Equal-cap trimming: prefix and suffix each get half the remaining budget.
+        # This prevents suffix starvation that occurs with proportional allocation
+        # (where the always-larger prefix steals almost all the budget).
+        max_ctx = (max_total_chars - len(middle) - len(xf_context)) // 2
+        if max_ctx > 0:
+            if len(prefix) > max_ctx:
+                prefix = prefix[-max_ctx:]
+            if len(suffix) > max_ctx:
+                suffix = suffix[:max_ctx]
 
         total = len(prefix) + len(middle) + len(suffix) + len(xf_context)
         if total > max_total_chars:
-            # Still over — drop cross-file context (least-local), then retry
+            # Still over — drop cross-file context, then retry
             xf_context = ""
-            remaining = max_total_chars - len(middle)
-            if remaining <= 0:
+            max_ctx = (max_total_chars - len(middle)) // 2
+            if max_ctx <= 0:
                 return None
-            ps_total = len(prefix) + len(suffix)
-            if ps_total > remaining:
-                p_budget = int(remaining * len(prefix) / ps_total) if ps_total else remaining // 2
-                s_budget = remaining - p_budget
-                if len(prefix) > p_budget:
-                    prefix = prefix[-p_budget:]
-                if len(suffix) > s_budget:
-                    suffix = suffix[:s_budget]
+            if len(prefix) > max_ctx:
+                prefix = prefix[-max_ctx:]
+            if len(suffix) > max_ctx:
+                suffix = suffix[:max_ctx]
             total = len(prefix) + len(middle) + len(suffix)
             if total > max_total_chars:
                 return None
@@ -224,20 +217,18 @@ def _split_byte_span_by_statements(
     return sub_spans
 
 
-def _split_byte_span_sliding_window(
+def _random_window_from_byte_span(
     source_bytes: bytes,
     span: CodeSpan,
     max_middle_lines: int,
-    stride: int = 0,
 ) -> list[CodeSpan]:
-    """Split an oversized byte span using a sliding window over lines.
+    """Pick a single random window from an oversized byte span.
 
-    Slides a max_middle_lines-sized window with 50% overlap (default stride)
-    across the middle text, emitting each window as a sub-span.
+    Instead of emitting all possible overlapping windows (which causes
+    dataset explosion), pick one random max_middle_lines-sized window
+    to represent the span.  Returns a one-element list for API compat,
+    or [span] unchanged if the span already fits.
     """
-    if stride <= 0:
-        stride = max(1, max_middle_lines // 2)
-
     middle = source_bytes[span.start_byte:span.end_byte]
     mid_lines = middle.split(b"\n")
 
@@ -251,36 +242,31 @@ def _split_byte_span_sliding_window(
         line_byte_offsets.append(offset)
         offset += len(line) + 1  # +1 for newline
 
-    sub_spans: list[CodeSpan] = []
-    i = 0
-    while i < len(mid_lines):
-        end_i = min(i + max_middle_lines, len(mid_lines))
+    # Pick one random start position
+    max_start = len(mid_lines) - max_middle_lines
+    i = random.randint(0, max_start)
+    end_i = i + max_middle_lines
 
-        # Compute byte offsets relative to source
-        window_start = span.start_byte + line_byte_offsets[i]
-        if end_i < len(mid_lines):
-            window_end = span.start_byte + line_byte_offsets[end_i] - 1  # exclude trailing newline
-        else:
-            window_end = span.end_byte
+    window_start = span.start_byte + line_byte_offsets[i]
+    if end_i < len(mid_lines):
+        window_end = span.start_byte + line_byte_offsets[end_i] - 1  # exclude trailing newline
+    else:
+        window_end = span.end_byte
 
-        if window_end > window_start:
-            start_line = source_bytes[:window_start].count(b"\n")
-            end_line = source_bytes[:window_end].count(b"\n")
-            sub_spans.append(CodeSpan(
-                kind=span.kind + "_window",
-                start_line=start_line,
-                end_line=end_line,
-                name=span.name,
-                start_byte=window_start,
-                end_byte=window_end,
-                skip_quality_filters=span.skip_quality_filters,
-            ))
+    if window_end <= window_start:
+        return []
 
-        if end_i >= len(mid_lines):
-            break
-        i += stride
-
-    return sub_spans
+    start_line = source_bytes[:window_start].count(b"\n")
+    end_line = source_bytes[:window_end].count(b"\n")
+    return [CodeSpan(
+        kind=span.kind + "_window",
+        start_line=start_line,
+        end_line=end_line,
+        name=span.name,
+        start_byte=window_start,
+        end_byte=window_end,
+        skip_quality_filters=span.skip_quality_filters,
+    )]
 
 
 def _make_example_from_line_span(
@@ -445,7 +431,7 @@ def generate_fim_examples(
                 if tree_root is not None:
                     sub_spans = _split_byte_span_by_statements(source_bytes, span, tree_root, max_middle_lines)
                 if not sub_spans:
-                    sub_spans = _split_byte_span_sliding_window(source_bytes, span, max_middle_lines)
+                    sub_spans = _random_window_from_byte_span(source_bytes, span, max_middle_lines)
                 else:
                     # Statement split may produce sub-spans still exceeding the limit
                     # (e.g. a single large method inside a class); apply window fallback
@@ -453,7 +439,7 @@ def generate_fim_examples(
                     for sub in sub_spans:
                         sub_mid = source_bytes[sub.start_byte:sub.end_byte]
                         if max_middle_lines > 0 and sub_mid.count(b"\n") + 1 > max_middle_lines:
-                            expanded.extend(_split_byte_span_sliding_window(source_bytes, sub, max_middle_lines))
+                            expanded.extend(_random_window_from_byte_span(source_bytes, sub, max_middle_lines))
                         else:
                             expanded.append(sub)
                     sub_spans = expanded

@@ -116,13 +116,11 @@ class FIMExample:
         if total_context <= remaining:
             return self  # Already fits
 
-        # Allocate remaining budget proportionally between prefix and suffix
-        if total_context > 0:
-            prefix_budget = int(remaining * len(full_prefix) / total_context)
-            suffix_budget = remaining - prefix_budget
-        else:
-            prefix_budget = remaining // 2
-            suffix_budget = remaining - prefix_budget
+        # Equal-cap: prefix and suffix each get half the remaining budget.
+        # Prevents suffix starvation from proportional allocation.
+        half = remaining // 2
+        prefix_budget = half
+        suffix_budget = remaining - half
 
         # Trim prefix from the left (keeps code nearest to the cursor)
         if len(full_prefix) > prefix_budget:
@@ -182,13 +180,10 @@ class FIMExample:
         if total_context_tokens <= remaining_budget:
             return self  # Already fits
 
-        # Allocate budget proportionally
-        if total_context_tokens > 0:
-            prefix_token_budget = int(remaining_budget * prefix_tokens / total_context_tokens)
-            suffix_token_budget = remaining_budget - prefix_token_budget
-        else:
-            prefix_token_budget = remaining_budget // 2
-            suffix_token_budget = remaining_budget - prefix_token_budget
+        # Equal-cap: each gets half the budget (prevents suffix starvation)
+        half = remaining_budget // 2
+        prefix_token_budget = half
+        suffix_token_budget = remaining_budget - half
 
         # Iterative trim: estimate chars to cut, re-encode to verify (max 4 rounds)
         for _ in range(4):

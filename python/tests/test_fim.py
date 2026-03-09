@@ -10,7 +10,7 @@ from generate._fim import (
     generate_fim_examples,
     _categorize,
     _split_byte_span_by_statements,
-    _split_byte_span_sliding_window,
+    _random_window_from_byte_span,
 )
 
 
@@ -159,11 +159,11 @@ class TestOversizedSpanSplitting:
         assert len(split_kinds) == 0, f"Unexpected split kinds in small file: {split_kinds}"
 
 
-class TestSlidingWindow:
-    """Unit tests for _split_byte_span_sliding_window."""
+class TestRandomWindow:
+    """Unit tests for _random_window_from_byte_span."""
 
-    def test_basic_window_split(self):
-        # 20 lines of content
+    def test_returns_single_window(self):
+        # 20 lines of content — should return exactly 1 random window
         lines = [f"line {i}" for i in range(20)]
         source = "\n".join(lines)
         source_bytes = source.encode("utf-8")
@@ -171,12 +171,11 @@ class TestSlidingWindow:
             kind="ast_single_node", start_line=0, end_line=19,
             start_byte=0, end_byte=len(source_bytes),
         )
-        sub_spans = _split_byte_span_sliding_window(source_bytes, span, max_middle_lines=10)
-        assert len(sub_spans) >= 2
-        for sub in sub_spans:
-            middle = source_bytes[sub.start_byte:sub.end_byte]
-            assert middle.count(b"\n") + 1 <= 10
-            assert sub.kind == "ast_single_node_window"
+        sub_spans = _random_window_from_byte_span(source_bytes, span, max_middle_lines=10)
+        assert len(sub_spans) == 1
+        middle = source_bytes[sub_spans[0].start_byte:sub_spans[0].end_byte]
+        assert middle.count(b"\n") + 1 <= 10
+        assert sub_spans[0].kind == "ast_single_node_window"
 
     def test_small_span_unchanged(self):
         source = "line 1\nline 2\nline 3"
@@ -185,7 +184,7 @@ class TestSlidingWindow:
             kind="dev_bracket_content", start_line=0, end_line=2,
             start_byte=0, end_byte=len(source_bytes),
         )
-        sub_spans = _split_byte_span_sliding_window(source_bytes, span, max_middle_lines=10)
+        sub_spans = _random_window_from_byte_span(source_bytes, span, max_middle_lines=10)
         assert len(sub_spans) == 1
         # Small span keeps original kind (no suffix)
         assert sub_spans[0].kind == "dev_bracket_content"
