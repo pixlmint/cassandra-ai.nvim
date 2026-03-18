@@ -47,7 +47,17 @@ FULL PIPELINE
         --method unsloth \
         --quant q8_0
 
-    # Option B: manual merge → llama.cpp conversion (most control)
+    # Option B: PEFT merge (recommended if unsloth merge produces garbage)
+    # Uses full-precision base model + PEFT's merge_and_unload for a clean merge.
+    # Auto-resolves the full-precision base from bnb-4bit names.
+    python export_to_ollama.py \
+        --base-model unsloth/Qwen2.5-Coder-3B-bnb-4bit \
+        --lora-adapter lora-output/lora-adapter \
+        --method peft \
+        --llama-cpp-path /path/to/llama.cpp \
+        --quant q8_0
+
+    # Option C: manual merge → llama.cpp conversion (most control)
     python export_to_ollama.py \
         --base-model unsloth/Qwen2.5-Coder-3B \
         --lora-adapter lora-output/lora-adapter \
@@ -258,6 +268,166 @@ def export_unsloth(base_model: str, lora_path: Path, output_dir: Path,
     return final_gguf
 
 
+def _resolve_full_precision_base(base_model: str) -> str:
+    """Resolve a bnb-4bit model name to its full-precision equivalent.
+
+    E.g. 'unsloth/Qwen2.5-Coder-3B-bnb-4bit' → 'Qwen/Qwen2.5-Coder-3B'
+    """
+    name = base_model.split("/")[-1]
+    # Strip unsloth quantization suffixes
+    for suffix in ["-bnb-4bit", "-bnb-8bit", "-4bit"]:
+        if name.endswith(suffix):
+            name = name[:-len(suffix)]
+            break
+
+    # Map known unsloth prefixes to HuggingFace orgs
+    lower = name.lower()
+    if "qwen" in lower:
+        return f"Qwen/{name}"
+    elif "codellama" in lower or "code-llama" in lower:
+        return f"codellama/{name}"
+    elif "granite" in lower:
+        return f"ibm-granite/{name}"
+    elif "starcoder" in lower:
+        return f"bigcode/{name}"
+
+    # Already looks like a full-precision name
+    if "/" in base_model and "bnb" not in base_model:
+        return base_model
+
+    return name
+
+
+# ---------------------------------------------------------------------------
+# Method C: PEFT merge (clean merge avoiding unsloth bugs)
+# ---------------------------------------------------------------------------
+def export_peft(base_model: str, lora_path: Path, output_dir: Path,
+                quant: str, max_seq_len: int,
+                llama_cpp_path: Path | None = None) -> Path:
+    """Merge LoRA using PEFT's merge_and_unload with a full-precision base.
+
+    This avoids unsloth's save_pretrained_merged which can corrupt weights
+    when dequantizing 4-bit models. Pipeline:
+      1. Load full-precision base with transformers
+      2. Apply LoRA adapter via PEFT
+      3. merge_and_unload() → clean f16 safetensors
+      4. convert_hf_to_gguf.py → f16 GGUF
+      5. llama-quantize → final quantized GGUF
+    """
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer as HFAutoTokenizer
+        from peft import PeftModel
+    except ImportError as e:
+        print(f"ERROR: missing dependency: {e}")
+        print("Install with: pip install transformers peft accelerate")
+        sys.exit(1)
+
+    # ------------------------------------------------------------------
+    # Find llama.cpp tools
+    # ------------------------------------------------------------------
+    converter, quantizer = find_llama_cpp_tools(llama_cpp_path)
+
+    if converter is None and llama_cpp_path is not None:
+        print(f"  convert_hf_to_gguf.py not found in {llama_cpp_path}")
+        print(f"  Attempting to download it...")
+        converter = _download_converter(llama_cpp_path)
+
+    if converter is None:
+        print("ERROR: Could not find convert_hf_to_gguf.py")
+        print("  Pass --llama-cpp-path /path/to/llama.cpp")
+        sys.exit(1)
+
+    needs_quantize = quant not in ("f16", "fp16")
+    if needs_quantize and quantizer is None:
+        print(f"ERROR: llama-quantize not found in {llama_cpp_path}")
+        sys.exit(1)
+
+    print(f"  Converter:  {converter}")
+    if quantizer:
+        print(f"  Quantizer:  {quantizer}")
+
+    # ------------------------------------------------------------------
+    # Step 1: Load full-precision base model
+    # ------------------------------------------------------------------
+    fp_base = _resolve_full_precision_base(base_model)
+    print(f"\n  Full-precision base: {fp_base}")
+    print(f"  Loading base model (this downloads ~6GB for 3B)...")
+
+    model = AutoModelForCausalLM.from_pretrained(
+        fp_base,
+        torch_dtype="auto",
+        device_map="auto",
+    )
+    tokenizer = HFAutoTokenizer.from_pretrained(fp_base)
+
+    # ------------------------------------------------------------------
+    # Step 2: Apply LoRA and merge
+    # ------------------------------------------------------------------
+    print(f"  Applying LoRA adapter: {lora_path}")
+    model = PeftModel.from_pretrained(model, str(lora_path))
+
+    print(f"  Merging LoRA weights (merge_and_unload)...")
+    model = model.merge_and_unload()
+
+    # ------------------------------------------------------------------
+    # Step 3: Save merged model
+    # ------------------------------------------------------------------
+    merged_dir = output_dir / "merged"
+    merged_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"  Saving merged model → {merged_dir}")
+    model.save_pretrained(str(merged_dir))
+    tokenizer.save_pretrained(str(merged_dir))
+    print(f"  Merge complete.")
+
+    # ------------------------------------------------------------------
+    # Step 4: Convert HF safetensors → f16 GGUF
+    # ------------------------------------------------------------------
+    gguf_dir = output_dir / "gguf"
+    gguf_dir.mkdir(parents=True, exist_ok=True)
+
+    f16_gguf = gguf_dir / "model-f16.gguf"
+    print(f"\n  Converting to GGUF (f16)...")
+
+    cmd = [sys.executable, str(converter), str(merged_dir),
+           "--outfile", str(f16_gguf), "--outtype", "f16"]
+    print(f"  $ {' '.join(cmd)}")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  FAILED: {result.stderr[-1000:]}")
+        sys.exit(1)
+
+    size_mb = f16_gguf.stat().st_size / (1024 * 1024)
+    print(f"  f16 GGUF: {f16_gguf} ({size_mb:.0f} MB)")
+
+    if not needs_quantize:
+        return f16_gguf
+
+    # ------------------------------------------------------------------
+    # Step 5: Quantize f16 GGUF → target quantization
+    # ------------------------------------------------------------------
+    final_gguf = gguf_dir / f"model-{quant}.gguf"
+    print(f"\n  Quantizing f16 → {quant}...")
+
+    quant_arg = quant.upper() if quant.startswith("q") else quant
+
+    cmd = [str(quantizer), str(f16_gguf), str(final_gguf), quant_arg]
+    print(f"  $ {' '.join(cmd)}")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  FAILED: {result.stderr[-1000:]}")
+        print(f"  (f16 GGUF still available at: {f16_gguf})")
+        sys.exit(1)
+
+    size_mb = final_gguf.stat().st_size / (1024 * 1024)
+    print(f"  Quantized GGUF: {final_gguf} ({size_mb:.0f} MB)")
+
+    print(f"  Removing intermediate f16 GGUF...")
+    f16_gguf.unlink()
+
+    return final_gguf
+
+
 def _download_converter(target_dir: Path) -> Path | None:
     """Download convert_hf_to_gguf.py from llama.cpp GitHub."""
     import urllib.request
@@ -408,8 +578,9 @@ def main():
                         help="Path to LoRA adapter directory from train_fim_lora.py")
     parser.add_argument("--output", "-o", type=Path, default=Path("export-output"),
                         help="Output directory (default: export-output/)")
-    parser.add_argument("--method", choices=["unsloth", "manual"], default="unsloth",
-                        help="Export method: 'unsloth' (auto, recommended) or "
+    parser.add_argument("--method", choices=["unsloth", "peft", "manual"], default="peft",
+                        help="Export method: 'peft' (recommended, clean merge via PEFT), "
+                             "'unsloth' (unsloth's built-in merge), or "
                              "'manual' (uses llama.cpp directly)")
     parser.add_argument("--quant", default="q8_0",
                         choices=["q4_0", "q4_K_M", "q5_K_M", "q8_0", "f16", "fp16"],
@@ -444,7 +615,12 @@ def main():
     print()
 
     # Export
-    if args.method == "unsloth":
+    if args.method == "peft":
+        gguf_path = export_peft(
+            args.base_model, args.lora_adapter, args.output,
+            args.quant, args.max_seq_len, args.llama_cpp_path,
+        )
+    elif args.method == "unsloth":
         gguf_path = export_unsloth(
             args.base_model, args.lora_adapter, args.output,
             args.quant, args.max_seq_len, args.llama_cpp_path,
